@@ -30,9 +30,10 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          # Gitea Action 会自动注入 github.token
-          password: ${{ github.token }}
+          # 尝试硬编码全小写用户名（Docker Registry 往往对大小写极其敏感）
+          username: yiyi
+          # Gitea 原生推荐使用 GITEA_TOKEN，并带上 GITHUB_TOKEN 作为回退
+          password: ${{ secrets.GITEA_TOKEN || secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
