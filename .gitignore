@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Environment variables (contains secrets!)
+.env
+
+# Data directory (database, keys, encryption key)
+data/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Claude Code config (local)
+.claude/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Lock file (optional - uncomment if you want to track it)
+# package-lock.json
+.env
