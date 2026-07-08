@@ -9,8 +9,8 @@ env:
   # 请将此处替换为你的 Gitea 实例的域名（不带 https://）
   # 例如: git.zhouhaoze.com 或 gitea.yourdomain.com
   REGISTRY: git.zhouhaoze.com
-  # 镜像名称，默认使用 组织名/仓库名 或 用户名/仓库名
-  IMAGE_NAME: ${{ github.repository }}
+  # 镜像名称，Docker 镜像名必须全部小写（原 github.repository 可能包含大写如 YiYi/SSO）
+  IMAGE_NAME: yiyi/sso
 
 jobs:
   build-and-push:
@@ -31,8 +31,8 @@ jobs:
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
-          # Gitea Action 会自动注入 GITHUB_TOKEN，此 Token 有权限推送到当前仓库的包注册表
-          password: ${{ secrets.GITHUB_TOKEN }}
+          # Gitea Action 会自动注入 github.token
+          password: ${{ github.token }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
