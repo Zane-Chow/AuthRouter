@@ -53,9 +53,10 @@ cp .env.example .env
 | `ADMIN_USERNAME` | 管理面板用户名 | `admin` |
 | `ADMIN_PASSWORD` | 管理面板密码（不设置则自动生成随机强密码，打印在 Docker 日志中） | 随机生成 |
 | `ENCRYPTION_KEY` | 密钥加密密钥（可选，留空则首次运行自动生成） | 自动生成 |
-| `DATA_DIR` | 数据持久化目录（SQLite 数据库、JWKS 密钥等） | `/app/data` |
+| `SESSION_SECRET` | Session 签名密钥（可选，留空则首次运行自动生成并持久化） | 自动生成 |
+| `DATA_DIR` | 数据持久化目录（SQLite 数据库、JWKS 密钥、Session 密钥等） | `/app/data` |
 
-> **注意**：`SESSION_SECRET` 已取消，启动时自动生成，无需用户配置。
+> **注意**：Session 密钥与 JWKS、加密密钥一样，会在首次启动时生成并持久化到 `DATA_DIR/session.key`，容器重启不会导致已登录的管理员会话或进行中的登录流程失效。
 
 > **注意**：上游 IdP（如 Google、GitHub）不再通过 `.env` 配置，全部通过 `/admin` 管理面板添加和管理。
 
@@ -166,6 +167,8 @@ curl https://sso.example.com/.well-known/openid-configuration
 | Scope | `openid email profile` | 授权范围 |
 
 > **Client ID 和 Client Secret 由服务器自动生成**，创建成功后仅显示一次，请妥善保存。添加后**立即生效**，无需重启服务。
+
+> 后续如需修改回调地址、名称、认证方式或 Scope，可点击客户端列表中的**编辑**按钮，在展开的表单中直接修改并保存——**Client ID 和 Client Secret 保持不变**，无需更新下游系统的配置。仅当勾选"重新生成 Client Secret"时才会轮换密钥（此时需要同步更新下游系统）。
 
 ### 6. 配置下游系统
 
@@ -291,6 +294,7 @@ src/
 | `/admin/login` | POST | 管理员登录 |
 | `/admin/logout` | POST | 管理员登出 |
 | `/admin/clients` | POST | 添加 OIDC 客户端 |
+| `/admin/clients/:id/update` | POST | 修改 OIDC 客户端（名称/回调地址/认证方式/Scope，可选重置密钥） |
 | `/admin/clients/:id/delete` | POST | 删除 OIDC 客户端 |
 | `/admin/upstream-providers` | POST | 添加上游 IdP |
 | `/admin/upstream-providers/:id/delete` | POST | 删除上游 IdP |
@@ -333,8 +337,9 @@ src/
 - 🔐 客户端密钥和上游 IdP 密钥使用 **AES-256-GCM** 加密存储
 - 🔑 JWKS 签名密钥（RSA256）自动生成并持久化，支持容器重启后密钥不变
 - 🔒 加密密钥支持通过 `ENCRYPTION_KEY` 环境变量显式指定，也可首次运行自动生成并保存到 `DATA_DIR/encryption.key`
+- 🔑 Session 签名密钥支持通过 `SESSION_SECRET` 环境变量显式指定，也可首次运行自动生成并保存到 `DATA_DIR/session.key`，容器重启不会导致已登录会话失效
 - 🛡️ OAuth 流程使用 CSRF state 参数和 nonce 防护
-- 🍪 Session 使用签名 Cookie + 内存存储，10 分钟过期，自动清理
+- 🍪 Session 使用签名 Cookie + 内存存储，2 小时过期（活动自动续期），自动清理
 - 🔏 OIDC 授权自动批准（Consent 自动通过，因为两端均为自有服务）
 
 ---
@@ -358,6 +363,12 @@ src/
 
 ### 管理面板无法登录
 - 检查 `.env` 中的 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 是否正确配置
+
+### 访问下一个页面时突然 403 Forbidden
+这通常不是 Cloudflare/Nginx 反代问题，而是应用侧的登录会话（session）失效导致，常见原因：
+- **进程重启导致会话签名失效**：`v2.0.0` 之前，Session 签名密钥每次进程启动都随机生成且不持久化，容器重启、镜像更新或异常退出后，所有已签发的登录 Cookie 会立即失效。现在密钥会持久化到 `DATA_DIR/session.key`（与 JWKS、加密密钥同机制），只需确认该目录挂载了持久化卷（参考 `docker-compose.yml` 中的 `sso-data` volume），重启不会再影响已登录会话。
+- **会话本身已过期**：管理面板登录态默认 2 小时有效（有操作会自动续期），超过后重新登录即可。
+- 若你确实部署了**多个副本/进程**做负载均衡：当前实现的会话存储是单进程内存，多副本场景下请求可能被转发到未持有该会话的实例而报 403。这种拓扑需要引入外部共享的 session 存储（如 Redis），不在当前默认实现范围内。
 
 ### 尚未配置任何上游身份提供商
 - 前往 `/admin` 面板添加至少一个上游 IdP

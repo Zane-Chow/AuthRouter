@@ -102,6 +102,11 @@ export async function addClient({
 
 /**
  * Update an existing client. The secret is encrypted before being stored.
+ * `clientSecret` is optional — omit it (or pass a falsy value) to keep the
+ * existing Client ID/Secret pair unchanged while updating everything else
+ * (e.g. redirect URIs), since downstream systems already have the old
+ * secret configured and shouldn't need to be touched for a redirect URI
+ * change.
  */
 export async function updateClient(clientId, {
   clientName,
@@ -112,13 +117,30 @@ export async function updateClient(clientId, {
   enabled = 1,
 }) {
   const db = await getDb();
+
+  if (clientSecret) {
+    return db.run(
+      `UPDATE oidc_clients
+       SET client_name = ?, client_secret = ?, redirect_uris = ?, token_endpoint_auth_method = ?, scope = ?, enabled = ?
+       WHERE client_id = ?`,
+      [
+        clientName.trim(),
+        encryptSecret(clientSecret),
+        JSON.stringify(Array.isArray(redirectUris) ? redirectUris : [redirectUris]),
+        tokenAuthMethod,
+        scope,
+        enabled ? 1 : 0,
+        clientId,
+      ]
+    );
+  }
+
   return db.run(
     `UPDATE oidc_clients
-     SET client_name = ?, client_secret = ?, redirect_uris = ?, token_endpoint_auth_method = ?, scope = ?, enabled = ?
+     SET client_name = ?, redirect_uris = ?, token_endpoint_auth_method = ?, scope = ?, enabled = ?
      WHERE client_id = ?`,
     [
       clientName.trim(),
-      encryptSecret(clientSecret),
       JSON.stringify(Array.isArray(redirectUris) ? redirectUris : [redirectUris]),
       tokenAuthMethod,
       scope,

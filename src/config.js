@@ -1,8 +1,41 @@
 import 'dotenv/config';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 
-// ─── Auto-generate session secret (no env var needed) ───────
-const sessionSecret = crypto.randomBytes(32).toString('hex');
+// ─── Session secret: persisted to disk (mirrors keys.js / crypto-util.js) ───
+// A secret that changes on every restart invalidates every cookie signed
+// with the old one the moment the process restarts (container restart,
+// `npm run dev --watch`, OOM, image update, ...) — every logged-in admin
+// session and in-flight OIDC interaction gets silently rejected as an
+// invalid signature, which surfaces as an intermittent 403 on the very
+// next click. Persisting it (like the JWKS and encryption keys already
+// are) makes restarts a non-event for existing sessions.
+const dataDir = process.env.DATA_DIR || '/app/data';
+const SESSION_SECRET_PATH = path.join(dataDir, 'session.key');
+
+function loadOrCreateSessionSecret() {
+  if (process.env.SESSION_SECRET) {
+    return process.env.SESSION_SECRET.trim();
+  }
+
+  if (fs.existsSync(SESSION_SECRET_PATH)) {
+    return fs.readFileSync(SESSION_SECRET_PATH, 'utf-8').trim();
+  }
+
+  console.log('🔑 Generating new session-signing secret...');
+  const secret = crypto.randomBytes(32).toString('hex');
+
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+  fs.writeFileSync(SESSION_SECRET_PATH, secret, { mode: 0o600 });
+  console.log(`✅ Session secret saved to ${SESSION_SECRET_PATH}`);
+
+  return secret;
+}
+
+const sessionSecret = loadOrCreateSessionSecret();
 
 // ─── Auto-generate admin password if not provided ───────────
 const adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(16).toString('base64url');

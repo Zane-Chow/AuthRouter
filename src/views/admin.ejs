@@ -80,6 +80,9 @@
     .form-actions { margin-top: 1rem; display: flex; justify-content: flex-end; }
     .badge { display: inline-block; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(255, 255, 255, 0.06); color: #94a3b8; }
     .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.82rem; }
+    .edit-row { display: none; }
+    .edit-row.open { display: table-row; }
+    .edit-row-inner { padding: 1rem 1.25rem; background: rgba(255, 255, 255, 0.015); }
   </style>
 </head>
 <body>
@@ -135,17 +138,46 @@
             <table>
               <thead><tr><th>Client ID</th><th>名称</th><th>回调地址</th><th>认证方式</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
-                <% clients.forEach(c => { %>
+                <% clients.forEach(c => {
+                  const uris = typeof c.redirect_uris === 'string' ? JSON.parse(c.redirect_uris) : c.redirect_uris;
+                %>
                   <tr>
                     <td class="mono"><%= c.client_id %></td>
                     <td><%= c.client_name %></td>
-                    <td class="mono" style="font-size:0.75rem; max-width:200px; word-wrap:break-word"><%= typeof c.redirect_uris === 'string' ? JSON.parse(c.redirect_uris).join(', ') : c.redirect_uris.join(', ') %></td>
+                    <td class="mono" style="font-size:0.75rem; max-width:200px; word-wrap:break-word"><%= uris.join(', ') %></td>
                     <td><span class="badge"><%= c.token_endpoint_auth_method %></span></td>
                     <td><%= c.enabled ? '✅' : '❌' %></td>
-                    <td>
+                    <td style="display:flex; gap:0.4rem;">
+                      <button type="button" class="btn-sm" onclick="document.getElementById('edit-client-<%= c.client_id %>').classList.toggle('open')">编辑</button>
                       <form method="POST" action="/admin/clients/<%= c.client_id %>/delete" onsubmit="return confirm('确定删除客户端 <%= c.client_name %>？相关映射也会被删除。')">
                         <button type="submit" class="btn-danger" style="border-radius:6px;">删除</button>
                       </form>
+                    </td>
+                  </tr>
+                  <tr id="edit-client-<%= c.client_id %>" class="edit-row">
+                    <td colspan="6" style="padding:0; border-bottom:1px solid rgba(255,255,255,0.03);">
+                      <div class="edit-row-inner">
+                        <form method="POST" action="/admin/clients/<%= c.client_id %>/update">
+                          <div class="form-row">
+                            <div class="form-group"><label>名称</label><input type="text" name="client_name" value="<%= c.client_name %>" required></div>
+                            <div class="form-group"><label>回调地址 (逗号分隔)</label><input type="text" name="redirect_uris" value="<%= uris.join(', ') %>" required></div>
+                            <div class="form-group">
+                              <label>认证方式</label>
+                              <select name="token_auth_method">
+                                <option value="client_secret_post" <%= c.token_endpoint_auth_method === 'client_secret_post' ? 'selected' : '' %>>client_secret_post</option>
+                                <option value="client_secret_basic" <%= c.token_endpoint_auth_method === 'client_secret_basic' ? 'selected' : '' %>>client_secret_basic</option>
+                              </select>
+                            </div>
+                            <div class="form-group"><label>Scope</label><input type="text" name="scope" value="<%= c.scope %>"></div>
+                          </div>
+                          <div class="form-group" style="display:flex; align-items:center; gap:0.5rem; margin-top:0.5rem;">
+                            <input type="checkbox" name="reset_secret" value="1" id="reset-secret-<%= c.client_id %>" style="width:auto;" onchange="this.closest('form').querySelector('.reset-secret-warning').style.display = this.checked ? 'block' : 'none'">
+                            <label for="reset-secret-<%= c.client_id %>" style="margin:0; cursor:pointer;">重新生成 Client Secret（Client ID 保持不变）</label>
+                          </div>
+                          <p class="reset-secret-warning" style="display:none; font-size:0.78rem; color:#fca5a5; margin-top:0.35rem;">⚠️ 旧密钥将立即失效，下游系统需同步更新为新密钥。</p>
+                          <div class="form-actions"><button type="submit" class="btn btn-add">保存修改</button></div>
+                        </form>
+                      </div>
                     </td>
                   </tr>
                 <% }); %>

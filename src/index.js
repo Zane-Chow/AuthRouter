@@ -18,7 +18,7 @@ import crypto from 'crypto';
 import config from './config.js';
 import { createProvider } from './provider.js';
 import { getEnabledProviders, isProviderEnabled, getAuthUrl, handleCallback } from './upstream-providers.js';
-import { getAllClients, getClientById, addClient, removeClient } from './clients.js';
+import { getAllClients, getClientById, addClient, updateClient, removeClient } from './clients.js';
 import { getTargetAccounts, getAllMappings, addMapping, removeMapping } from './mapping.js';
 import {
   getAllProviders,
@@ -71,9 +71,13 @@ setInterval(() => {
 
 app.use(session({
   key: 'sso:sess',
-  maxAge: 10 * 60 * 1000, // 10 minutes
+  // 2 hours, renewed on activity — long enough that admin dashboard use
+  // doesn't get logged out mid-session, while still short-lived overall.
+  // OIDC interactions (login/consent) complete within seconds regardless
+  // of this ceiling, so a longer maxAge has no effect on that flow.
+  maxAge: 2 * 60 * 60 * 1000,
   store: sessionStore,
-  renew: false,
+  renew: true,
   sameSite: 'lax',
 }, app));
 
@@ -387,10 +391,14 @@ router.post('/interaction/:uid/select', async (ctx) => {
 // ═══════════════════════════════════════════════════════════
 
 // --- Admin Auth Middleware ---
+// Redirects to the login page rather than returning a bare 403 — the vast
+// majority of "Forbidden" hits here are an expired/missing session rather
+// than an actual authorization failure, so sending the user back to
+// /admin (where they can just log back in) is both more accurate and
+// more useful than a dead-end error page.
 function requireAdmin(ctx) {
   if (!ctx.session.isAdmin) {
-    ctx.status = 403;
-    ctx.body = 'Forbidden';
+    ctx.redirect('/admin?error=' + encodeURIComponent('登录已过期，请重新登录'));
     return false;
   }
   return true;
@@ -501,6 +509,66 @@ router.post('/admin/clients/:clientId/delete', async (ctx) => {
     ctx.redirect('/admin?message=' + encodeURIComponent('客户端已删除'));
   } catch (err) {
     console.error('❌ Failed to delete client:', err);
+    ctx.redirect('/admin?error=' + encodeURIComponent(err.message));
+  }
+});
+
+/**
+ * Update an existing OIDC client — name, redirect URIs, auth method, scope.
+ * The Client ID always stays the same. The Client Secret is only rotated
+ * when the "reset secret" checkbox was checked; otherwise the existing
+ * secret is preserved so downstream systems don't need reconfiguring just
+ * because a callback URL changed.
+ */
+router.post('/admin/clients/:clientId/update', async (ctx) => {
+  if (!requireAdmin(ctx)) return;
+
+  const { client_name, redirect_uris, token_auth_method, scope, reset_secret } = ctx.request.body;
+  const clientId = ctx.params.clientId;
+
+  if (!client_name || !redirect_uris) {
+    ctx.redirect('/admin?error=' + encodeURIComponent('名称和回调地址不能为空'));
+    return;
+  }
+
+  const existing = await getClientById(clientId);
+  if (!existing) {
+    ctx.redirect('/admin?error=' + encodeURIComponent('客户端不存在'));
+    return;
+  }
+
+  try {
+    const uris = redirect_uris
+      .split(/[,\n]/)
+      .map(u => u.trim())
+      .filter(Boolean);
+
+    const newSecret = reset_secret ? crypto.randomBytes(32).toString('base64url') : null;
+
+    await updateClient(clientId, {
+      clientName: client_name.trim(),
+      clientSecret: newSecret,
+      redirectUris: uris,
+      tokenAuthMethod: token_auth_method || 'client_secret_post',
+      scope: scope || 'openid email profile',
+      enabled: existing.enabled,
+    });
+
+    console.log(`✅ Client updated: ${clientId} (${client_name})${newSecret ? ' [secret reset]' : ''}`);
+
+    if (newSecret) {
+      const data = await loadAdminViewData();
+      await render(ctx, 'admin', {
+        loggedIn: true,
+        ...data,
+        reveal: { clientId, clientSecret: newSecret, clientName: client_name.trim() },
+      });
+      return;
+    }
+
+    ctx.redirect('/admin?message=' + encodeURIComponent('客户端已更新'));
+  } catch (err) {
+    console.error('❌ Failed to update client:', err);
     ctx.redirect('/admin?error=' + encodeURIComponent(err.message));
   }
 });
