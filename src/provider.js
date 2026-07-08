@@ -16,7 +16,8 @@ export async function createProvider() {
   const jwks = await getJWKS();
   const enabledClients = await getEnabledClients();
 
-  const provider = new Provider(config.sso.baseUrl, {
+  const issuer = config.sso.baseUrl || `http://localhost:${config.sso.port}`;
+  const provider = new Provider(issuer, {
     // Custom adapter: Client lookups query the database live (hot-reload);
     // all other models use in-process memory storage.
     adapter: DbAdapter,
@@ -94,7 +95,7 @@ export async function createProvider() {
   provider.proxy = true;
 
   console.log('✅ OIDC Provider initialized');
-  console.log(`   Issuer:    ${config.sso.baseUrl}`);
+  console.log(`   Issuer:    ${issuer}`);
   console.log(`   Clients:   ${enabledClients.length} registered`);
 
   return provider;

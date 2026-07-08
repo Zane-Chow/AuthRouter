@@ -725,18 +725,34 @@ const port = config.sso.port;
 const startupProviders = await getEnabledProviders();
 
 app.listen(port, () => {
+  const issuerDisplay = config.sso.baseUrl || `http://localhost:${port}`;
   console.log('');
   console.log('╔══════════════════════════════════════════════════╗');
   console.log('║          Personal SSO Middleware Started          ║');
   console.log('╠══════════════════════════════════════════════════╣');
   console.log(`║  Port:      ${String(port).padEnd(37)}║`);
-  console.log(`║  Issuer:    ${config.sso.baseUrl.padEnd(37)}║`);
+  console.log(`║  Issuer:    ${issuerDisplay.padEnd(37)}║`);
+  console.log(`║  DB Driver: ${config.db.driver.padEnd(37)}║`);
+  console.log(`║  Data Dir:  ${config.dataDir.padEnd(37)}║`);
   console.log(`║  Providers: ${(startupProviders.map(p => p.id).join(', ') || '(none — configure via /admin)').padEnd(37)}║`);
   console.log('║                                                  ║');
   console.log('║  Endpoints:                                      ║');
-  console.log(`║  Discovery: ${(config.sso.baseUrl + '/.well-known/openid-configuration').padEnd(37)}║`);
-  console.log(`║  Admin:     ${(config.sso.baseUrl + '/admin').padEnd(37)}║`);
-  console.log(`║  Health:    ${(config.sso.baseUrl + '/health').padEnd(37)}║`);
+  console.log(`║  Admin:     ${(issuerDisplay + '/admin').padEnd(37)}║`);
+  console.log(`║  Health:    ${(issuerDisplay + '/health').padEnd(37)}║`);
   console.log('╚══════════════════════════════════════════════════╝');
+
+  // Print generated admin credentials to Docker logs
+  if (config.admin.passwordGenerated) {
+    console.log('');
+    console.log('╔══════════════════════════════════════════════════╗');
+    console.log('║  ⚠️  Admin Password Auto-Generated               ║');
+    console.log('╠══════════════════════════════════════════════════╣');
+    console.log(`║  Username: ${config.admin.username.padEnd(38)}║`);
+    console.log(`║  Password: ${config.admin.password.padEnd(38)}║`);
+    console.log('║                                                  ║');
+    console.log('║  Set ADMIN_PASSWORD env var to use your own.     ║');
+    console.log('╚══════════════════════════════════════════════════╝');
+  }
+
   console.log('');
 });

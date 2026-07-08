@@ -43,18 +43,19 @@
 cp .env.example .env
 ```
 
-编辑 `.env`，填入以下关键值：
+编辑 `.env`，按需修改以下选项（**所有选项均为可选**，不配置也可直接启动）：
 
 | 变量 | 说明 | 默认值 |
 |------|------|--------|
-| `SSO_BASE_URL` | SSO 中间件的外部访问地址（必须 HTTPS） | `https://sso.example.com` |
+| `SSO_BASE_URL` | SSO 中间件的外部访问地址（建议 HTTPS） | `http://localhost:3000` |
 | `SSO_PORT` | 内部监听端口（反向代理后端） | `3000` |
 | `DB_DRIVER` | 数据库类型：`sqlite` 或 `mysql` | `sqlite` |
 | `ADMIN_USERNAME` | 管理面板用户名 | `admin` |
-| `ADMIN_PASSWORD` | 管理面板密码（**务必修改**） | — |
-| `SESSION_SECRET` | 会话签名密钥（`openssl rand -hex 32`） | — |
+| `ADMIN_PASSWORD` | 管理面板密码（不设置则自动生成随机强密码，打印在 Docker 日志中） | 随机生成 |
 | `ENCRYPTION_KEY` | 密钥加密密钥（可选，留空则首次运行自动生成） | 自动生成 |
-| `DATA_DIR` | 数据持久化目录（SQLite 数据库、JWKS 密钥等） | `./data` |
+| `DATA_DIR` | 数据持久化目录（SQLite 数据库、JWKS 密钥等） | `/app/data` |
+
+> **注意**：`SESSION_SECRET` 已取消，启动时自动生成，无需用户配置。
 
 > **注意**：上游 IdP（如 Google、GitHub）不再通过 `.env` 配置，全部通过 `/admin` 管理面板添加和管理。
 
@@ -100,7 +101,6 @@ server {
 ### 3. 启动 SSO 中间件
 
 ```bash
-docker compose build
 docker compose up -d
 ```
 

@@ -1,21 +1,24 @@
 services:
   sso-middleware:
-    build: .
+    image: your-registry/personal-sso:latest
     container_name: personal-sso
     restart: unless-stopped
     ports:
       # Only bind to localhost — nginx reverse proxy handles external traffic
-      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:${SSO_PORT:-3000}:${SSO_PORT:-3000}"
     volumes:
-      # Persist SQLite database and JWKS keys across restarts
-      - ./data:/app/data
+      # Persist SQLite database, JWKS keys, and encryption key across restarts
+      - sso-data:${DATA_DIR:-/app/data}
     env_file:
       - .env
     environment:
       - NODE_ENV=production
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/.well-known/openid-configuration"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:${SSO_PORT:-3000}/.well-known/openid-configuration"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 10s
+
+volumes:
+  sso-data:

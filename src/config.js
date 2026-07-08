@@ -1,8 +1,16 @@
 import 'dotenv/config';
+import crypto from 'crypto';
+
+// ─── Auto-generate session secret (no env var needed) ───────
+const sessionSecret = crypto.randomBytes(32).toString('hex');
+
+// ─── Auto-generate admin password if not provided ───────────
+const adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(16).toString('base64url');
+const adminPasswordGenerated = !process.env.ADMIN_PASSWORD;
 
 const config = {
   sso: {
-    baseUrl: process.env.SSO_BASE_URL || 'https://sso.zhouhaoze.com',
+    baseUrl: process.env.SSO_BASE_URL || '',
     port: parseInt(process.env.SSO_PORT || '3000', 10),
   },
 
@@ -20,23 +28,20 @@ const config = {
 
   admin: {
     username: process.env.ADMIN_USERNAME || 'admin',
-    password: process.env.ADMIN_PASSWORD || 'changeme',
+    password: adminPassword,
+    passwordGenerated: adminPasswordGenerated,
   },
 
   session: {
-    secret: process.env.SESSION_SECRET || 'change-me-to-a-random-string',
+    secret: sessionSecret,
   },
 
-  dataDir: process.env.DATA_DIR || './data',
+  dataDir: process.env.DATA_DIR || '/app/data',
 };
 
 if (config.db.driver === 'mysql' && (!config.db.mysql.user || !config.db.mysql.database)) {
   console.error('\n❌ DB_DRIVER=mysql requires MYSQL_USER and MYSQL_DATABASE to be set.\n');
   process.exit(1);
-}
-
-if (config.session.secret === 'change-me-to-a-random-string') {
-  console.warn('⚠️  WARNING: Using default SESSION_SECRET. Please set a secure random value in .env\n');
 }
 
 // Upstream Identity Providers are configured entirely through the /admin
