@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SSO 管理面板</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #07070d;
+      color: #f1f5f9;
+      min-height: 100vh;
+      background-image: radial-gradient(ellipse at 20% 0%, rgba(99, 102, 241, 0.06) 0%, transparent 50%), radial-gradient(ellipse at 80% 100%, rgba(139, 92, 246, 0.04) 0%, transparent 50%);
+    }
+    .navbar {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 1rem 2rem; background: rgba(255, 255, 255, 0.02);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      backdrop-filter: blur(12px); position: sticky; top: 0; z-index: 10;
+    }
+    .navbar-brand { display: flex; align-items: center; gap: 0.6rem; font-size: 0.95rem; font-weight: 600; }
+    .navbar-brand .icon {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: linear-gradient(135deg, #6366f1, #8b5cf6);
+      display: flex; align-items: center; justify-content: center; font-size: 0.85rem;
+    }
+    .btn-sm {
+      padding: 0.4rem 0.85rem; border-radius: 8px; font-family: inherit; font-size: 0.8rem; font-weight: 500;
+      cursor: pointer; transition: all 0.2s ease; border: 1px solid rgba(255, 255, 255, 0.08); background: transparent; color: #94a3b8;
+    }
+    .btn-sm:hover { background: rgba(255, 255, 255, 0.04); border-color: rgba(255, 255, 255, 0.15); color: #f1f5f9; }
+    .main { max-width: 1024px; margin: 0 auto; padding: 2rem; }
+    .login-wrapper { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 80px); }
+    .login-card {
+      width: 100%; max-width: 380px; background: rgba(255, 255, 255, 0.025);
+      border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 20px; padding: 2rem;
+      backdrop-filter: blur(24px); box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3); animation: cardIn 0.4s ease;
+    }
+    @keyframes cardIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .login-card h2 { font-size: 1.15rem; font-weight: 600; margin-bottom: 0.25rem; }
+    .login-card .subtitle { font-size: 0.8rem; color: #64748b; margin-bottom: 1.5rem; }
+    .form-group { margin-bottom: 1rem; }
+    .form-group label { display: block; font-size: 0.78rem; font-weight: 500; color: #94a3b8; margin-bottom: 0.35rem; }
+    .form-group input, .form-group select {
+      width: 100%; padding: 0.6rem 0.75rem; background: rgba(255, 255, 255, 0.04); border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px; color: #f1f5f9; font-family: inherit; font-size: 0.85rem; transition: border-color 0.2s; outline: none;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: rgba(99, 102, 241, 0.5); box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1); }
+    .form-group select option { background: #1e293b; color: #f1f5f9; }
+    .btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0.6rem 1.25rem; border-radius: 10px; font-family: inherit; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: all 0.2s ease; border: none; }
+    .btn-primary { background: linear-gradient(135deg, #6366f1, #7c3aed); color: #fff; width: 100%; }
+    .btn-primary:hover { opacity: 0.9; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
+    .btn-add { background: rgba(52, 211, 153, 0.12); border: 1px solid rgba(52, 211, 153, 0.2); color: #6ee7b7; }
+    .btn-add:hover { background: rgba(52, 211, 153, 0.2); border-color: rgba(52, 211, 153, 0.35); }
+    .btn-danger { background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.15); color: #fca5a5; padding: 0.35rem 0.75rem; font-size: 0.78rem; }
+    .btn-danger:hover { background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.3); }
+    .alert { padding: 0.75rem 1rem; border-radius: 10px; font-size: 0.82rem; margin-bottom: 1.25rem; animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    .alert-success { background: rgba(52, 211, 153, 0.08); border: 1px solid rgba(52, 211, 153, 0.15); color: #6ee7b7; }
+    .alert-error { background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.15); color: #fca5a5; }
+    .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; }
+    .section-header h2 { font-size: 1.05rem; font-weight: 600; }
+    .section-header .count { font-size: 0.75rem; color: #64748b; background: rgba(255, 255, 255, 0.04); padding: 0.2rem 0.6rem; border-radius: 999px; }
+    .table-wrapper { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; overflow: hidden; margin-bottom: 2rem; }
+    .table-scroll { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; min-width: 600px; }
+    thead th { text-align: left; padding: 0.75rem 1rem; font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: #64748b; background: rgba(255, 255, 255, 0.02); border-bottom: 1px solid rgba(255, 255, 255, 0.06); }
+    tbody td { padding: 0.75rem 1rem; font-size: 0.85rem; border-bottom: 1px solid rgba(255, 255, 255, 0.03); }
+    tbody tr:hover { background: rgba(255, 255, 255, 0.02); }
+    tbody tr:last-child td { border-bottom: none; }
+    .empty-state { text-align: center; padding: 3rem 2rem; color: #475569; }
+    .empty-state .emoji { font-size: 2rem; margin-bottom: 0.75rem; }
+    .empty-state p { font-size: 0.85rem; }
+    .add-section { background: rgba(255, 255, 255, 0.02); border: 1px solid rgba(255, 255, 255, 0.06); border-radius: 14px; padding: 1.5rem; margin-bottom: 2rem; }
+    .add-section h3 { font-size: 0.95rem; font-weight: 600; margin-bottom: 1rem; display: flex; align-items: center; gap: 0.5rem; }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .form-actions { margin-top: 1rem; display: flex; justify-content: flex-end; }
+    .badge { display: inline-block; font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 0.15rem 0.5rem; border-radius: 4px; background: rgba(255, 255, 255, 0.06); color: #94a3b8; }
+    .mono { font-family: 'SF Mono', 'Fira Code', monospace; font-size: 0.82rem; }
+  </style>
+</head>
+<body>
+  <% if (!loggedIn) { %>
+    <nav class="navbar">
+      <div class="navbar-brand"><div class="icon">🔐</div><span>SSO Admin</span></div>
+    </nav>
+    <div class="login-wrapper">
+      <div class="login-card">
+        <h2>管理面板登录</h2>
+        <p class="subtitle">管理 OIDC 客户端与身份映射</p>
+        <% if (typeof error !== 'undefined' && error) { %>
+          <div class="alert alert-error">⚠️ <%= error %></div>
+        <% } %>
+        <form method="POST" action="/admin/login">
+          <div class="form-group">
+            <label>用户名</label>
+            <input type="text" name="username" placeholder="admin" required>
+          </div>
+          <div class="form-group">
+            <label>密码</label>
+            <input type="password" name="password" placeholder="••••••••" required>
+          </div>
+          <button type="submit" class="btn btn-primary">登录</button>
+        </form>
+      </div>
+    </div>
+  <% } else { %>
+    <nav class="navbar">
+      <div class="navbar-brand"><div class="icon">🔐</div><span>SSO Admin Dashboard</span></div>
+      <form method="POST" action="/admin/logout" style="margin:0"><button type="submit" class="btn-sm">退出登录</button></form>
+    </nav>
+    <div class="main">
+      <% if (typeof message !== 'undefined' && message) { %><div class="alert alert-success">✅ <%= message %></div><% } %>
+      <% if (typeof error !== 'undefined' && error) { %><div class="alert alert-error">⚠️ <%= error %></div><% } %>
+
+      <!-- Clients Section -->
+      <div class="section-header"><h2>OIDC 客户端</h2><span class="count"><%= clients.length %></span></div>
+      <div class="table-wrapper">
+        <% if (clients.length === 0) { %>
+          <div class="empty-state"><div class="emoji">🔌</div><p>暂无注册的客户端</p></div>
+        <% } else { %>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Client ID</th><th>名称</th><th>回调地址</th><th>认证方式</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                <% clients.forEach(c => { %>
+                  <tr>
+                    <td class="mono"><%= c.client_id %></td>
+                    <td><%= c.client_name %></td>
+                    <td class="mono" style="font-size:0.75rem; max-width:200px; word-wrap:break-word"><%= typeof c.redirect_uris === 'string' ? JSON.parse(c.redirect_uris).join(', ') : c.redirect_uris.join(', ') %></td>
+                    <td><span class="badge"><%= c.token_endpoint_auth_method %></span></td>
+                    <td><%= c.enabled ? '✅' : '❌' %></td>
+                    <td>
+                      <form method="POST" action="/admin/clients/<%= c.client_id %>/delete" onsubmit="return confirm('确定删除客户端 <%= c.client_name %>？相关映射也会被删除。')">
+                        <button type="submit" class="btn-danger" style="border-radius:6px;">删除</button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+
+      <div class="add-section">
+        <h3>➕ 添加客户端</h3>
+        <form method="POST" action="/admin/clients">
+          <div class="form-row">
+            <div class="form-group"><label>Client ID</label><input type="text" name="client_id" required></div>
+            <div class="form-group"><label>Client Secret</label><input type="text" name="client_secret" required></div>
+            <div class="form-group"><label>名称</label><input type="text" name="client_name" required></div>
+            <div class="form-group"><label>回调地址 (逗号分隔)</label><input type="text" name="redirect_uris" required></div>
+            <div class="form-group">
+              <label>认证方式</label>
+              <select name="token_auth_method">
+                <option value="client_secret_post">client_secret_post</option>
+                <option value="client_secret_basic">client_secret_basic</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Scope</label><input type="text" name="scope" value="openid email profile"></div>
+          </div>
+          <div class="form-actions"><button type="submit" class="btn btn-add">添加客户端</button></div>
+        </form>
+      </div>
+
+      <!-- Mappings Section -->
+      <div class="section-header"><h2>身份映射</h2><span class="count"><%= mappings.length %></span></div>
+      <div class="table-wrapper">
+        <% if (mappings.length === 0) { %>
+          <div class="empty-state"><div class="emoji">📭</div><p>暂无映射。默认使用上游 IdP 返回的原始身份。</p></div>
+        <% } else { %>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>客户端</th><th>平台</th><th>来源身份</th><th>→</th><th>目标身份</th><th>显示名称</th><th>操作</th></tr></thead>
+              <tbody>
+                <% mappings.forEach(m => { %>
+                  <tr>
+                    <td class="mono"><%= m.client_id %></td>
+                    <td><span class="badge"><%= m.provider %></span></td>
+                    <td class="mono"><%= m.provider_identity %></td>
+                    <td style="color:#475569">→</td>
+                    <td class="mono"><%= m.target_identity %></td>
+                    <td style="color:#94a3b8"><%= m.display_name || '—' %></td>
+                    <td>
+                      <form method="POST" action="/admin/mappings/<%= m.id %>/delete" onsubmit="return confirm('确定删除此映射？')">
+                        <button type="submit" class="btn-danger" style="border-radius:6px;">删除</button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+
+      <div class="add-section">
+        <h3>➕ 添加映射</h3>
+        <form method="POST" action="/admin/mappings">
+          <div class="form-row">
+            <div class="form-group">
+              <label>客户端</label>
+              <select name="client_id" required>
+                <% clients.forEach(c => { %><option value="<%= c.client_id %>"><%= c.client_name %> (<%= c.client_id %>)</option><% }); %>
+              </select>
+            </div>
+            <div class="form-group">
+              <label>登录平台</label>
+              <select name="provider_type">
+                <% enabledProviders.forEach(p => { %><option value="<%= p.id %>"><%= p.name %></option><% }); %>
+              </select>
+            </div>
+            <div class="form-group"><label>来源身份</label><input type="text" name="provider_identity" required></div>
+            <div class="form-group"><label>目标身份</label><input type="text" name="target_identity" required></div>
+            <div class="form-group"><label>显示名称 (可选)</label><input type="text" name="display_name"></div>
+          </div>
+          <div class="form-actions"><button type="submit" class="btn btn-add">添加映射</button></div>
+        </form>
+      </div>
+
+    </div>
+  <% } %>
+</body>
+</html>

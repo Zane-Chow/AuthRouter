@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>错误 - SSO</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: #07070d;
+      color: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      background-image: radial-gradient(ellipse at 50% 50%, rgba(239, 68, 68, 0.05) 0%, transparent 60%);
+    }
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: rgba(255, 255, 255, 0.025);
+      border: 1px solid rgba(239, 68, 68, 0.12);
+      border-radius: 20px;
+      padding: 2.5rem 2rem;
+      text-align: center;
+      backdrop-filter: blur(24px);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+      animation: cardIn 0.4s ease;
+    }
+    @keyframes cardIn {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .icon {
+      width: 56px;
+      height: 56px;
+      border-radius: 16px;
+      background: rgba(239, 68, 68, 0.1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 1.25rem;
+      font-size: 1.5rem;
+    }
+    h2 { font-size: 1.1rem; font-weight: 600; margin-bottom: 0.5rem; color: #fca5a5; }
+    .message { font-size: 0.875rem; color: #94a3b8; line-height: 1.6; margin-bottom: 0.75rem; }
+    .hint { font-size: 0.8rem; color: #64748b; margin-bottom: 1.5rem; }
+    .actions { display: flex; gap: 0.75rem; justify-content: center; }
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.6rem 1.25rem;
+      border-radius: 10px;
+      font-family: inherit;
+      font-size: 0.85rem;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+    .btn-ghost {
+      background: transparent;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      color: #94a3b8;
+    }
+    .btn-ghost:hover {
+      background: rgba(255, 255, 255, 0.04);
+      border-color: rgba(255, 255, 255, 0.12);
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">⚠️</div>
+    <h2>登录失败</h2>
+    <p class="message"><%= message || '发生未知错误' %></p>
+    <% if (typeof hint !== 'undefined' && hint) { %>
+      <p class="hint"><%= hint %></p>
+    <% } %>
+    <div class="actions">
+      <a href="javascript:history.back()" class="btn btn-ghost">← 返回</a>
+    </div>
+  </div>
+</body>
+</html>
