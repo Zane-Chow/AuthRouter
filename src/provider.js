@@ -1,30 +1,25 @@
 import Provider from 'oidc-provider';
 import config from './config.js';
 import { getJWKS } from './keys.js';
-import { getOidcClients, getOidcClient } from './clients.js';
+import { getEnabledClients } from './clients.js';
+import { DbAdapter } from './oidc-adapter.js';
 
 /**
  * Create and configure the OIDC Provider instance.
  *
  * This provider acts as an Identity Provider (IdP) for downstream
- * Relying Parties (websites/apps). Clients are dynamically loaded
- * from the database, not hardcoded.
+ * Relying Parties (websites/apps). Clients are looked up live from the
+ * database via a custom Adapter, so admin panel changes (add/update/remove)
+ * take effect immediately without restarting the process.
  */
 export async function createProvider() {
   const jwks = await getJWKS();
-
-  // Load initial clients from database
-  const initialClients = getOidcClients();
+  const enabledClients = await getEnabledClients();
 
   const provider = new Provider(config.sso.baseUrl, {
-    // Load clients from database at startup
-    clients: initialClients,
-
-    // Use adapter to dynamically find clients (supports hot-reload)
-    // oidc-provider will call findAccount and use the clients array,
-    // but for dynamic client lookup we override clientBasedCORS and
-    // provide a custom client adapter below.
-    findClient: undefined, // We'll use the built-in client store + refresh
+    // Custom adapter: Client lookups query the database live (hot-reload);
+    // all other models use in-process memory storage.
+    adapter: DbAdapter,
 
     // Signing keys for ID tokens
     jwks,
@@ -100,41 +95,7 @@ export async function createProvider() {
 
   console.log('✅ OIDC Provider initialized');
   console.log(`   Issuer:    ${config.sso.baseUrl}`);
-  console.log(`   Clients:   ${initialClients.length} registered`);
+  console.log(`   Clients:   ${enabledClients.length} registered`);
 
   return provider;
-}
-
-/**
- * Reload clients into the OIDC provider.
- * Call this after adding/removing clients via the admin panel.
- *
- * Note: oidc-provider doesn't natively support hot-reloading clients,
- * so we need to manipulate its internal client store. This function
- * accesses provider internals, which may break on major version updates.
- *
- * @param {Provider} provider - The oidc-provider instance
- */
-export async function reloadClients(provider) {
-  const clients = getOidcClients();
-
-  // Clear internal client cache
-  const clientKeystore = provider.Client;
-
-  // Re-add all clients by iterating
-  // The oidc-provider v8 stores clients in an internal Map.
-  // We clear it and re-initialize.
-  const store = provider.Client;
-
-  // Force re-initialize by calling find on each — this triggers lazy loading
-  // For a clean reload, we restart the provider's internal client list
-  for (const clientData of clients) {
-    try {
-      await store.find(clientData.client_id);
-    } catch {
-      // Client not found in cache — that's fine, it will be added on next auth request
-    }
-  }
-
-  console.log(`🔄 Client cache refresh attempted for ${clients.length} clients`);
 }

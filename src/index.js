@@ -2,7 +2,7 @@
  * Personal SSO Middleware — Main Entry Point
  *
  * A generic OIDC proxy that supports multiple upstream Identity Providers
- * (Google, GitHub, etc.) and multiple downstream Relying Parties.
+ * (configured via the /admin panel) and multiple downstream Relying Parties.
  *
  * Architecture:
  *   Upstream IdPs ←(OAuth2/OIDC)→ [This App] ←(oidc-provider)→ Downstream RPs
@@ -20,6 +20,14 @@ import { createProvider } from './provider.js';
 import { getEnabledProviders, isProviderEnabled, getAuthUrl, handleCallback } from './upstream-providers.js';
 import { getAllClients, getClientById, addClient, removeClient } from './clients.js';
 import { getTargetAccounts, getAllMappings, addMapping, removeMapping } from './mapping.js';
+import {
+  getAllProviders,
+  getProviderById,
+  addProvider,
+  removeProvider,
+  setProviderEnabled,
+} from './upstream-providers-db.js';
+import { clearProviderCache } from './oidc-auth.js';
 import { render } from './render.js';
 
 // ─── Application Setup ──────────────────────────────────────
@@ -102,7 +110,7 @@ const router = new Router();
 
 /**
  * Handle OIDC interaction — called when oidc-provider needs user action.
- * For 'login' prompt: show the IdP selector page (Google / GitHub).
+ * For 'login' prompt: show the IdP selector page (from configured upstream IdPs).
  * For 'consent' prompt: auto-approve (we control both sides).
  */
 router.get('/interaction/:uid', async (ctx) => {
@@ -110,7 +118,15 @@ router.get('/interaction/:uid', async (ctx) => {
   const { prompt } = details;
 
   if (prompt.name === 'login') {
-    const providers = getEnabledProviders();
+    const providers = await getEnabledProviders();
+
+    if (providers.length === 0) {
+      await render(ctx, 'error', {
+        message: '尚未配置任何上游身份提供商',
+        hint: '请前往 /admin 面板添加至少一个上游 IdP。',
+      });
+      return;
+    }
 
     // If only one upstream IdP is configured, skip selector and redirect directly
     if (providers.length === 1) {
@@ -191,7 +207,7 @@ router.get('/interaction/:uid', async (ctx) => {
 router.post('/interaction/:uid/select-idp', async (ctx) => {
   const { provider: providerName } = ctx.request.body;
 
-  if (!providerName || !isProviderEnabled(providerName)) {
+  if (!providerName || !(await isProviderEnabled(providerName))) {
     await render(ctx, 'error', {
       message: `不支持的登录方式: ${providerName}`,
     });
@@ -227,7 +243,7 @@ router.get('/sso/:provider/callback', async (ctx) => {
     return;
   }
 
-  if (!isProviderEnabled(providerName)) {
+  if (!(await isProviderEnabled(providerName))) {
     await render(ctx, 'error', {
       message: `不支持的登录方式: ${providerName}`,
     });
@@ -281,7 +297,7 @@ router.get('/interaction/:uid/federated', async (ctx) => {
   const { provider: authProvider, email, name, avatar } = userProfile;
 
   // Look up identity mappings for this client + provider + identity
-  const mappings = getTargetAccounts(requesting_client_id, authProvider, email);
+  const mappings = await getTargetAccounts(requesting_client_id, authProvider, email);
 
   if (mappings.length === 0) {
     // No mapping configured — use original upstream identity (passthrough)
@@ -343,7 +359,7 @@ router.post('/interaction/:uid/select', async (ctx) => {
   const { provider: authProvider, email } = userProfile;
 
   // Verify the selected account is a valid mapping for this user + client
-  const mappings = getTargetAccounts(requesting_client_id, authProvider, email);
+  const mappings = await getTargetAccounts(requesting_client_id, authProvider, email);
   const valid = mappings.find(m => m.target_identity === selected_account);
 
   if (!valid) {
@@ -380,6 +396,17 @@ function requireAdmin(ctx) {
   return true;
 }
 
+/** Gather the data needed to render the logged-in admin dashboard. */
+async function loadAdminViewData() {
+  const [clients, mappings, enabledProviders, providers] = await Promise.all([
+    getAllClients(),
+    getAllMappings(),
+    getEnabledProviders(),
+    getAllProviders(),
+  ]);
+  return { clients, mappings, enabledProviders, providers };
+}
+
 /** Admin panel — login gate + main dashboard */
 router.get('/admin', async (ctx) => {
   if (!ctx.session.isAdmin) {
@@ -387,15 +414,11 @@ router.get('/admin', async (ctx) => {
     return;
   }
 
-  const clients = getAllClients();
-  const mappings = getAllMappings();
-  const enabledProviders = getEnabledProviders();
+  const data = await loadAdminViewData();
 
   await render(ctx, 'admin', {
     loggedIn: true,
-    clients,
-    mappings,
-    enabledProviders,
+    ...data,
     message: ctx.query.message || undefined,
     error: ctx.query.error || undefined,
   });
@@ -421,48 +444,50 @@ router.post('/admin/logout', async (ctx) => {
 
 // --- Client Management ---
 
-/** Add a new OIDC client */
+/**
+ * Add a new OIDC client. Client ID/Secret are generated server-side and
+ * revealed exactly once on this render — they are never shown again.
+ */
 router.post('/admin/clients', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
-  const {
-    client_id,
-    client_secret,
-    client_name,
-    redirect_uris,
-    token_auth_method,
-    scope,
-  } = ctx.request.body;
+  const { client_name, redirect_uris, token_auth_method, scope } = ctx.request.body;
 
-  if (!client_id || !client_secret || !client_name || !redirect_uris) {
-    ctx.redirect('/admin?error=' + encodeURIComponent('Client ID、Secret、名称和回调地址不能为空'));
+  if (!client_name || !redirect_uris) {
+    ctx.redirect('/admin?error=' + encodeURIComponent('名称和回调地址不能为空'));
     return;
   }
 
   try {
-    // Parse redirect_uris: support comma-separated or newline-separated
     const uris = redirect_uris
       .split(/[,\n]/)
       .map(u => u.trim())
       .filter(Boolean);
 
-    addClient({
-      clientId: client_id.trim(),
-      clientSecret: client_secret.trim(),
+    const clientId = crypto.randomBytes(12).toString('hex');
+    const clientSecret = crypto.randomBytes(32).toString('base64url');
+
+    await addClient({
+      clientId,
+      clientSecret,
       clientName: client_name.trim(),
       redirectUris: uris,
       tokenAuthMethod: token_auth_method || 'client_secret_post',
       scope: scope || 'openid email profile',
     });
 
-    console.log(`✅ Client added: ${client_id} (${client_name})`);
-    console.log('⚠️  Note: New clients require a server restart to take effect in oidc-provider.');
-    ctx.redirect('/admin?message=' + encodeURIComponent(`客户端 ${client_name} 添加成功。注意：需要重启服务才能生效。`));
+    console.log(`✅ Client added: ${clientId} (${client_name})`);
+
+    const data = await loadAdminViewData();
+    await render(ctx, 'admin', {
+      loggedIn: true,
+      ...data,
+      reveal: { clientId, clientSecret, clientName: client_name.trim() },
+    });
 
   } catch (err) {
     console.error('❌ Failed to add client:', err);
-    const msg = err.message.includes('UNIQUE') ? '该 Client ID 已存在' : err.message;
-    ctx.redirect('/admin?error=' + encodeURIComponent(msg));
+    ctx.redirect('/admin?error=' + encodeURIComponent(err.message));
   }
 });
 
@@ -471,11 +496,115 @@ router.post('/admin/clients/:clientId/delete', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
   try {
-    removeClient(ctx.params.clientId);
+    await removeClient(ctx.params.clientId);
     console.log(`🗑️  Client ${ctx.params.clientId} deleted`);
-    ctx.redirect('/admin?message=' + encodeURIComponent('客户端已删除。需要重启服务才能生效。'));
+    ctx.redirect('/admin?message=' + encodeURIComponent('客户端已删除'));
   } catch (err) {
     console.error('❌ Failed to delete client:', err);
+    ctx.redirect('/admin?error=' + encodeURIComponent(err.message));
+  }
+});
+
+// --- Upstream Identity Provider Management ---
+
+/** Add a new upstream IdP (type: 'oidc' | 'oauth2') */
+router.post('/admin/upstream-providers', async (ctx) => {
+  if (!requireAdmin(ctx)) return;
+
+  const {
+    provider_id,
+    display_name,
+    type,
+    issuer,
+    authorize_url,
+    token_url,
+    userinfo_url,
+    email_url,
+    client_id,
+    client_secret,
+    scope,
+    field_id,
+    field_email,
+    field_name,
+    field_avatar,
+    icon,
+  } = ctx.request.body;
+
+  if (!provider_id || !display_name || !type || !client_id || !client_secret) {
+    ctx.redirect('/admin?error=' + encodeURIComponent('标识、名称、类型、Client ID、Client Secret 不能为空'));
+    return;
+  }
+
+  if (type === 'oidc' && !issuer) {
+    ctx.redirect('/admin?error=' + encodeURIComponent('OIDC 类型需要填写 Issuer'));
+    return;
+  }
+
+  if (type === 'oauth2' && (!authorize_url || !token_url || !userinfo_url)) {
+    ctx.redirect('/admin?error=' + encodeURIComponent('OAuth2 类型需要填写 Authorize/Token/Userinfo 地址'));
+    return;
+  }
+
+  try {
+    await addProvider({
+      providerId: provider_id.trim(),
+      displayName: display_name.trim(),
+      type,
+      issuer: issuer || null,
+      authorizeUrl: authorize_url || null,
+      tokenUrl: token_url || null,
+      userinfoUrl: userinfo_url || null,
+      emailUrl: email_url || null,
+      clientId: client_id.trim(),
+      clientSecret: client_secret.trim(),
+      scope: scope || (type === 'oidc' ? 'openid email profile' : ''),
+      fieldId: field_id || 'sub',
+      fieldEmail: field_email || 'email',
+      fieldName: field_name || 'name',
+      fieldAvatar: field_avatar || 'picture',
+      icon: icon || 'generic',
+    });
+
+    console.log(`✅ Upstream provider added: ${provider_id} (${display_name}, ${type})`);
+    ctx.redirect('/admin?message=' + encodeURIComponent(`上游 IdP ${display_name} 添加成功`));
+  } catch (err) {
+    console.error('❌ Failed to add upstream provider:', err);
+    const msg = err.message.includes('UNIQUE') || err.message.includes('Duplicate') ? '该标识已存在' : err.message;
+    ctx.redirect('/admin?error=' + encodeURIComponent(msg));
+  }
+});
+
+/** Delete an upstream IdP */
+router.post('/admin/upstream-providers/:id/delete', async (ctx) => {
+  if (!requireAdmin(ctx)) return;
+
+  try {
+    const row = await getProviderById(ctx.params.id);
+    await removeProvider(ctx.params.id);
+    if (row) clearProviderCache(row.provider_id);
+    console.log(`🗑️  Upstream provider ${ctx.params.id} deleted`);
+    ctx.redirect('/admin?message=' + encodeURIComponent('上游 IdP 已删除'));
+  } catch (err) {
+    console.error('❌ Failed to delete upstream provider:', err);
+    ctx.redirect('/admin?error=' + encodeURIComponent(err.message));
+  }
+});
+
+/** Toggle enabled/disabled state for an upstream IdP */
+router.post('/admin/upstream-providers/:id/toggle', async (ctx) => {
+  if (!requireAdmin(ctx)) return;
+
+  try {
+    const row = await getProviderById(ctx.params.id);
+    if (!row) {
+      ctx.redirect('/admin?error=' + encodeURIComponent('未找到该上游 IdP'));
+      return;
+    }
+    await setProviderEnabled(ctx.params.id, !row.enabled);
+    clearProviderCache(row.provider_id);
+    ctx.redirect('/admin?message=' + encodeURIComponent(`上游 IdP 已${row.enabled ? '禁用' : '启用'}`));
+  } catch (err) {
+    console.error('❌ Failed to toggle upstream provider:', err);
     ctx.redirect('/admin?error=' + encodeURIComponent(err.message));
   }
 });
@@ -494,16 +623,16 @@ router.post('/admin/mappings', async (ctx) => {
   }
 
   // Verify the client exists
-  const client = getClientById(client_id);
+  const client = await getClientById(client_id);
   if (!client) {
     ctx.redirect('/admin?error=' + encodeURIComponent(`客户端 ${client_id} 不存在`));
     return;
   }
 
   try {
-    const result = addMapping(
+    const result = await addMapping(
       client_id,
-      provider_type || 'google',
+      provider_type || '',
       provider_identity,
       target_identity,
       display_name || null
@@ -526,7 +655,7 @@ router.post('/admin/mappings/:id/delete', async (ctx) => {
   if (!requireAdmin(ctx)) return;
 
   try {
-    removeMapping(ctx.params.id);
+    await removeMapping(ctx.params.id);
     console.log(`🗑️  Mapping ${ctx.params.id} deleted`);
     ctx.redirect('/admin?message=' + encodeURIComponent('映射已删除'));
   } catch (err) {
@@ -546,7 +675,7 @@ router.get('/api/clients', async (ctx) => {
     ctx.body = { error: 'Unauthorized' };
     return;
   }
-  const clients = getAllClients();
+  const clients = await getAllClients();
   // Don't expose secrets in API response
   ctx.body = clients.map(c => ({
     ...c,
@@ -562,18 +691,19 @@ router.get('/api/mappings', async (ctx) => {
     return;
   }
   const clientId = ctx.query.client_id;
-  ctx.body = getAllMappings(clientId || undefined);
+  ctx.body = await getAllMappings(clientId || undefined);
 });
 
 // ═══════════════════════════════════════════════════════════
 // Health Check
 // ═══════════════════════════════════════════════════════════
 
-router.get('/health', (ctx) => {
+router.get('/health', async (ctx) => {
+  const providers = await getEnabledProviders();
   ctx.body = {
     status: 'ok',
     timestamp: new Date().toISOString(),
-    providers: config.enabledProviders,
+    providers: providers.map(p => p.id),
   };
 });
 
@@ -592,6 +722,7 @@ app.use(mount(provider.app));
 // ─── Start Server ───────────────────────────────────────────
 
 const port = config.sso.port;
+const startupProviders = await getEnabledProviders();
 
 app.listen(port, () => {
   console.log('');
@@ -600,7 +731,7 @@ app.listen(port, () => {
   console.log('╠══════════════════════════════════════════════════╣');
   console.log(`║  Port:      ${String(port).padEnd(37)}║`);
   console.log(`║  Issuer:    ${config.sso.baseUrl.padEnd(37)}║`);
-  console.log(`║  Providers: ${config.enabledProviders.join(', ').padEnd(37)}║`);
+  console.log(`║  Providers: ${(startupProviders.map(p => p.id).join(', ') || '(none — configure via /admin)').padEnd(37)}║`);
   console.log('║                                                  ║');
   console.log('║  Endpoints:                                      ║');
   console.log(`║  Discovery: ${(config.sso.baseUrl + '/.well-known/openid-configuration').padEnd(37)}║`);

@@ -116,6 +116,15 @@
       <% if (typeof message !== 'undefined' && message) { %><div class="alert alert-success">✅ <%= message %></div><% } %>
       <% if (typeof error !== 'undefined' && error) { %><div class="alert alert-error">⚠️ <%= error %></div><% } %>
 
+      <% if (typeof reveal !== 'undefined' && reveal) { %>
+        <div class="add-section" style="border-color: rgba(52, 211, 153, 0.3); background: rgba(52, 211, 153, 0.04);">
+          <h3>✅ 客户端 <%= reveal.clientName %> 创建成功</h3>
+          <p style="font-size:0.8rem; color:#fca5a5; margin-bottom:0.75rem;">⚠️ 请立即复制 Client Secret，关闭本页后将无法再次查看明文。</p>
+          <div class="form-group"><label>Client ID</label><input type="text" class="mono" value="<%= reveal.clientId %>" readonly onclick="this.select()"></div>
+          <div class="form-group"><label>Client Secret</label><input type="text" class="mono" value="<%= reveal.clientSecret %>" readonly onclick="this.select()"></div>
+        </div>
+      <% } %>
+
       <!-- Clients Section -->
       <div class="section-header"><h2>OIDC 客户端</h2><span class="count"><%= clients.length %></span></div>
       <div class="table-wrapper">
@@ -148,10 +157,9 @@
 
       <div class="add-section">
         <h3>➕ 添加客户端</h3>
+        <p style="font-size:0.78rem; color:#64748b; margin-bottom:1rem;">Client ID 和 Client Secret 将由服务器自动生成，创建后仅显示一次。</p>
         <form method="POST" action="/admin/clients">
           <div class="form-row">
-            <div class="form-group"><label>Client ID</label><input type="text" name="client_id" required></div>
-            <div class="form-group"><label>Client Secret</label><input type="text" name="client_secret" required></div>
             <div class="form-group"><label>名称</label><input type="text" name="client_name" required></div>
             <div class="form-group"><label>回调地址 (逗号分隔)</label><input type="text" name="redirect_uris" required></div>
             <div class="form-group">
@@ -166,6 +174,87 @@
           <div class="form-actions"><button type="submit" class="btn btn-add">添加客户端</button></div>
         </form>
       </div>
+
+      <!-- Upstream Providers Section -->
+      <div class="section-header"><h2>上游身份提供商</h2><span class="count"><%= providers.length %></span></div>
+      <div class="table-wrapper">
+        <% if (providers.length === 0) { %>
+          <div class="empty-state"><div class="emoji">🌐</div><p>暂无上游 IdP，登录功能不可用。请在下方添加至少一个。</p></div>
+        <% } else { %>
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>标识</th><th>名称</th><th>类型</th><th>状态</th><th>操作</th></tr></thead>
+              <tbody>
+                <% providers.forEach(p => { %>
+                  <tr>
+                    <td class="mono"><%= p.provider_id %></td>
+                    <td><%= p.display_name %></td>
+                    <td><span class="badge"><%= p.type %></span></td>
+                    <td><%= p.enabled ? '✅' : '❌' %></td>
+                    <td style="display:flex; gap:0.4rem;">
+                      <form method="POST" action="/admin/upstream-providers/<%= p.id %>/toggle">
+                        <button type="submit" class="btn-sm"><%= p.enabled ? '禁用' : '启用' %></button>
+                      </form>
+                      <form method="POST" action="/admin/upstream-providers/<%= p.id %>/delete" onsubmit="return confirm('确定删除上游 IdP <%= p.display_name %>？')">
+                        <button type="submit" class="btn-danger" style="border-radius:6px;">删除</button>
+                      </form>
+                    </td>
+                  </tr>
+                <% }); %>
+              </tbody>
+            </table>
+          </div>
+        <% } %>
+      </div>
+
+      <div class="add-section">
+        <h3>➕ 添加上游 IdP</h3>
+        <form method="POST" action="/admin/upstream-providers">
+          <div class="form-row">
+            <div class="form-group"><label>标识 (英文, 如 google / company-sso)</label><input type="text" name="provider_id" required></div>
+            <div class="form-group"><label>显示名称</label><input type="text" name="display_name" required></div>
+            <div class="form-group">
+              <label>类型</label>
+              <select name="type" onchange="toggleProviderFields(this.value)">
+                <option value="oidc">OIDC (标准协议，自动发现)</option>
+                <option value="oauth2">OAuth2 (手动配置端点)</option>
+              </select>
+            </div>
+            <div class="form-group"><label>Client ID</label><input type="text" name="client_id" required></div>
+            <div class="form-group"><label>Client Secret</label><input type="text" name="client_secret" required></div>
+            <div class="form-group"><label>Scope</label><input type="text" name="scope" placeholder="openid email profile"></div>
+            <div class="form-group"><label>图标 (可选)</label><input type="text" name="icon" placeholder="generic"></div>
+          </div>
+
+          <div class="form-row oidc-fields" style="margin-top:0.75rem;">
+            <div class="form-group"><label>Issuer</label><input type="text" name="issuer" placeholder="https://accounts.google.com"></div>
+          </div>
+
+          <div class="oauth2-fields" style="display:none; margin-top:0.75rem;">
+            <div class="form-row">
+              <div class="form-group"><label>Authorize URL</label><input type="text" name="authorize_url"></div>
+              <div class="form-group"><label>Token URL</label><input type="text" name="token_url"></div>
+              <div class="form-group"><label>Userinfo URL</label><input type="text" name="userinfo_url"></div>
+              <div class="form-group"><label>Email URL (可选，GitHub 式私有邮箱兜底)</label><input type="text" name="email_url"></div>
+            </div>
+            <div class="form-row" style="margin-top:0.75rem;">
+              <div class="form-group"><label>字段映射: ID</label><input type="text" name="field_id" placeholder="id"></div>
+              <div class="form-group"><label>字段映射: Email</label><input type="text" name="field_email" placeholder="email"></div>
+              <div class="form-group"><label>字段映射: 名称</label><input type="text" name="field_name" placeholder="name"></div>
+              <div class="form-group"><label>字段映射: 头像</label><input type="text" name="field_avatar" placeholder="avatar_url"></div>
+            </div>
+          </div>
+
+          <div class="form-actions"><button type="submit" class="btn btn-add">添加上游 IdP</button></div>
+        </form>
+      </div>
+
+      <script>
+        function toggleProviderFields(type) {
+          document.querySelectorAll('.oidc-fields').forEach(el => el.style.display = type === 'oidc' ? '' : 'none');
+          document.querySelectorAll('.oauth2-fields').forEach(el => el.style.display = type === 'oauth2' ? '' : 'none');
+        }
+      </script>
 
       <!-- Mappings Section -->
       <div class="section-header"><h2>身份映射</h2><span class="count"><%= mappings.length %></span></div>

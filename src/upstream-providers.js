@@ -1,68 +1,57 @@
-import config from './config.js';
-import { getGoogleClient, getGoogleAuthUrl } from './google-auth.js';
-import { getGithubAuthUrl, handleGithubCallback } from './github-auth.js';
+import { getEnabledProviderRows, getProviderConfig } from './upstream-providers-db.js';
+import * as oidcAuth from './oidc-auth.js';
+import * as oauth2Auth from './oauth2-auth.js';
 
 /**
  * Upstream Providers — unified interface for all upstream IdPs.
- *
- * Each provider must support:
- * - getAuthUrl(state, nonce) → string
- * - handleCallback(ctx, session) → { provider, id, email, name, avatar }
+ * Fully database-driven (configured via the /admin panel); dispatches by
+ * `row.type` ('oidc' | 'oauth2') to the matching adapter module.
  */
-
-/**
- * Metadata for each upstream IdP (used by login selector page).
- */
-const providerMeta = {
-  google: {
-    name: 'Google',
-    icon: 'google',      // icon key for frontend rendering
-  },
-  github: {
-    name: 'GitHub',
-    icon: 'github',
-  },
-};
 
 /**
  * Get the list of enabled upstream providers with their metadata.
  * Used by the login selector page.
- * @returns {Array<{id: string, name: string, icon: string}>}
+ * @returns {Promise<Array<{id: string, name: string, icon: string}>>}
  */
-export function getEnabledProviders() {
-  return config.enabledProviders.map(id => ({
-    id,
-    ...providerMeta[id],
+export async function getEnabledProviders() {
+  const rows = await getEnabledProviderRows();
+  return rows.map(row => ({
+    id: row.provider_id,
+    name: row.display_name,
+    icon: row.icon || 'generic',
   }));
 }
 
 /**
  * Check if a provider is enabled.
  * @param {string} providerName
- * @returns {boolean}
+ * @returns {Promise<boolean>}
  */
-export function isProviderEnabled(providerName) {
-  return config.enabledProviders.includes(providerName);
+export async function isProviderEnabled(providerName) {
+  const row = await getProviderConfig(providerName);
+  return !!row;
 }
 
 /**
  * Get the OAuth authorization URL for the specified provider.
- * @param {string} providerName - 'google' | 'github'
+ * @param {string} providerName - upstream_providers.provider_id
  * @param {string} state - CSRF state parameter
- * @param {string} nonce - Nonce for OIDC (used by Google, ignored by GitHub)
+ * @param {string} nonce - Nonce (used by OIDC, ignored by plain OAuth2)
  * @returns {Promise<string>} The authorization URL
  */
 export async function getAuthUrl(providerName, state, nonce) {
-  switch (providerName) {
-    case 'google': {
-      const client = await getGoogleClient();
-      return getGoogleAuthUrl(client, state, nonce);
-    }
-    case 'github': {
-      return getGithubAuthUrl(state);
-    }
+  const row = await getProviderConfig(providerName);
+  if (!row) {
+    throw new Error(`Unknown or disabled upstream provider: ${providerName}`);
+  }
+
+  switch (row.type) {
+    case 'oidc':
+      return oidcAuth.getAuthUrl(row, state, nonce);
+    case 'oauth2':
+      return oauth2Auth.getAuthUrl(row, state);
     default:
-      throw new Error(`Unknown upstream provider: ${providerName}`);
+      throw new Error(`Unsupported provider type: ${row.type}`);
   }
 }
 
@@ -70,46 +59,30 @@ export async function getAuthUrl(providerName, state, nonce) {
  * Handle the OAuth callback for the specified provider.
  * Returns a normalized user profile.
  *
- * @param {string} providerName - 'google' | 'github'
+ * @param {string} providerName - upstream_providers.provider_id
  * @param {object} ctx - Koa context (for reading query params)
  * @param {object} sessionData - Session data containing state/nonce
  * @returns {Promise<{provider: string, id: string, email: string, name: string, avatar: string}>}
  */
 export async function handleCallback(providerName, ctx, sessionData) {
-  switch (providerName) {
-    case 'google': {
-      const client = await getGoogleClient();
-      const params = client.callbackParams(ctx.req);
+  const row = await getProviderConfig(providerName);
+  if (!row) {
+    throw new Error(`Unknown or disabled upstream provider: ${providerName}`);
+  }
 
-      const tokenSet = await client.callback(
-        `${config.sso.baseUrl}/sso/google/callback`,
-        params,
-        {
-          state: sessionData.oauth_state,
-          nonce: sessionData.oauth_nonce,
-        }
-      );
+  switch (row.type) {
+    case 'oidc':
+      return oidcAuth.handleCallback(row, ctx, sessionData);
 
-      const userinfo = await client.userinfo(tokenSet);
-
-      return {
-        provider: 'google',
-        id: userinfo.sub,
-        email: userinfo.email,
-        name: userinfo.name || '',
-        avatar: userinfo.picture || '',
-      };
-    }
-
-    case 'github': {
+    case 'oauth2': {
       const code = ctx.query.code;
       if (!code) {
-        throw new Error('Missing authorization code from GitHub');
+        throw new Error(`Missing authorization code from ${providerName}`);
       }
-      return handleGithubCallback(code, sessionData.oauth_state, ctx.query.state);
+      return oauth2Auth.handleCallback(row, code, sessionData.oauth_state, ctx.query.state);
     }
 
     default:
-      throw new Error(`Unknown upstream provider: ${providerName}`);
+      throw new Error(`Unsupported provider type: ${row.type}`);
   }
 }

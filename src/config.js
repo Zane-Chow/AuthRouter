@@ -6,20 +6,16 @@ const config = {
     port: parseInt(process.env.SSO_PORT || '3000', 10),
   },
 
-  // Upstream Identity Providers
-  google: {
-    clientId: process.env.GOOGLE_CLIENT_ID,
-    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    issuer: 'https://accounts.google.com',
-  },
-
-  github: {
-    clientId: process.env.GITHUB_CLIENT_ID,
-    clientSecret: process.env.GITHUB_CLIENT_SECRET,
-    authorizeUrl: 'https://github.com/login/oauth/authorize',
-    tokenUrl: 'https://github.com/login/oauth/access_token',
-    userApiUrl: 'https://api.github.com/user',
-    userEmailsApiUrl: 'https://api.github.com/user/emails',
+  db: {
+    // 'sqlite' (default) or 'mysql' — chosen at deploy time, not switchable at runtime.
+    driver: (process.env.DB_DRIVER || 'sqlite').toLowerCase(),
+    mysql: {
+      host: process.env.MYSQL_HOST || 'localhost',
+      port: parseInt(process.env.MYSQL_PORT || '3306', 10),
+      user: process.env.MYSQL_USER,
+      password: process.env.MYSQL_PASSWORD,
+      database: process.env.MYSQL_DATABASE,
+    },
   },
 
   admin: {
@@ -34,16 +30,8 @@ const config = {
   dataDir: process.env.DATA_DIR || './data',
 };
 
-// Validate: at least one upstream IdP must be configured
-const hasGoogle = config.google.clientId && config.google.clientSecret;
-const hasGithub = config.github.clientId && config.github.clientSecret;
-
-if (!hasGoogle && !hasGithub) {
-  console.error('\n❌ No upstream Identity Provider configured.');
-  console.error('   Please configure at least one of:');
-  console.error('   - GOOGLE_CLIENT_ID + GOOGLE_CLIENT_SECRET');
-  console.error('   - GITHUB_CLIENT_ID + GITHUB_CLIENT_SECRET\n');
-  console.error('   Copy .env.example to .env and fill in the values.\n');
+if (config.db.driver === 'mysql' && (!config.db.mysql.user || !config.db.mysql.database)) {
+  console.error('\n❌ DB_DRIVER=mysql requires MYSQL_USER and MYSQL_DATABASE to be set.\n');
   process.exit(1);
 }
 
@@ -51,9 +39,9 @@ if (config.session.secret === 'change-me-to-a-random-string') {
   console.warn('⚠️  WARNING: Using default SESSION_SECRET. Please set a secure random value in .env\n');
 }
 
-// Export which providers are available
-config.enabledProviders = [];
-if (hasGoogle) config.enabledProviders.push('google');
-if (hasGithub) config.enabledProviders.push('github');
+// Upstream Identity Providers are configured entirely through the /admin
+// panel and stored in the database — there is no env-var-based provider
+// config or startup requirement here. If zero providers are enabled,
+// the admin panel surfaces that instead of refusing to start.
 
 export default config;
