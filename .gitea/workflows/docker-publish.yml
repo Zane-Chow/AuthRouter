@@ -30,10 +30,10 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
-          # 尝试硬编码全小写用户名（Docker Registry 往往对大小写极其敏感）
-          username: yiyi
-          # Gitea 原生推荐使用 GITEA_TOKEN，并带上 GITHUB_TOKEN 作为回退
-          password: ${{ secrets.GITEA_TOKEN || secrets.GITHUB_TOKEN }}
+          username: ${{ github.actor }}
+          # 由于 Gitea 自带的 Action Token 经常存在没有 Package 写入权限的问题，
+          # 强烈建议使用 Personal Access Token (PAT) 存入仓库的 Secrets 中
+          password: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
