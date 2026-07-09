@@ -81,10 +81,6 @@ app.use(session({
   sameSite: 'lax',
 }, app));
 
-// ─── Body Parser ────────────────────────────────────────────
-
-app.use(bodyParser());
-
 // ─── Error Handler ──────────────────────────────────────────
 
 app.use(async (ctx, next) => {
@@ -103,6 +99,18 @@ app.use(async (ctx, next) => {
 // ─── Create OIDC Provider ───────────────────────────────────
 
 const provider = await createProvider();
+
+// ─── Mount OIDC Provider (before body parser) ───────────────
+// The OIDC provider must be mounted BEFORE the global body parser so that
+// it can parse POST bodies (e.g. /token) with its own internal parser.
+// If koa-bodyparser runs first, the provider sees an already-consumed body
+// and emits: "already parsed request body detected".
+app.use(mount(provider.app));
+
+// ─── Body Parser (for our own routes only) ──────────────────
+// Placed after the OIDC provider mount so it only affects interaction,
+// admin, and API routes — never the provider's own endpoints.
+app.use(bodyParser());
 
 // ─── Routes ─────────────────────────────────────────────────
 
@@ -775,17 +783,12 @@ router.get('/health', async (ctx) => {
   };
 });
 
-// ─── Mount Routes & Provider ────────────────────────────────
+// ─── Mount Routes ───────────────────────────────────────────
 
-// Our routes first (interaction, auth, admin)
+// Our routes (interaction, auth, admin)
+// The OIDC provider is already mounted above (before body parser).
 app.use(router.routes());
 app.use(router.allowedMethods());
-
-// OIDC Provider handles: /auth, /token, /me, /jwks, /.well-known/*
-// Use koa-mount to properly mount the oidc-provider (which is itself a Koa app)
-// as a sub-application. This ensures the provider gets its own Koa context with
-// proper raw Node.js req/res objects, avoiding "setHeader is not a function" errors.
-app.use(mount(provider.app));
 
 // ─── Start Server ───────────────────────────────────────────
 

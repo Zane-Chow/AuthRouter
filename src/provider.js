@@ -82,6 +82,8 @@ export async function createProvider() {
       AuthorizationCode: 600,  // 10 minutes
       IdToken: 3600,           // 1 hour
       RefreshToken: 86400,     // 24 hours
+      Grant: 1209600,          // 14 days — how long a consent grant is remembered
+      Interaction: 600,        // 10 minutes — time window for a login/consent flow
       Session: 1,              // 1 second (effectively disables session caching)
     },
 
