@@ -101,6 +101,15 @@ app.use(async (ctx, next) => {
 const provider = await createProvider();
 
 // ─── Mount OIDC Provider (before body parser) ───────────────
+// Force proxy trust: we inject the x-forwarded-proto header so the
+// underlying OIDC engine always treats the request as secure (HTTPS).
+// This guarantees it will never complain about proxy headers, even for
+// local internal requests (like Docker healthchecks).
+app.use(async (ctx, next) => {
+  ctx.headers['x-forwarded-proto'] = 'https';
+  await next();
+});
+
 // The OIDC provider must be mounted BEFORE the global body parser so that
 // it can parse POST bodies (e.g. /token) with its own internal parser.
 // If koa-bodyparser runs first, the provider sees an already-consumed body
