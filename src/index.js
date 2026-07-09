@@ -34,6 +34,19 @@ import { render } from './render.js';
 
 const app = new Koa();
 app.proxy = true; // Trust reverse proxy (nginx)
+
+// --- Debug Middleware (Temporary) ---
+app.use(async (ctx, next) => {
+  if (ctx.path.startsWith('/.well-known') || ctx.path.startsWith('/auth') || ctx.path.startsWith('/token')) {
+    console.log(`[DEBUG] Request to ${ctx.path}`);
+    console.log(`[DEBUG] Headers:`, ctx.headers['x-forwarded-proto'], ctx.headers['x-forwarded-for']);
+    console.log(`[DEBUG] ctx.app.proxy:`, ctx.app.proxy);
+    console.log(`[DEBUG] ctx.secure:`, ctx.secure);
+    console.log(`[DEBUG] ctx.protocol:`, ctx.protocol);
+  }
+  await next();
+});
+// ------------------------------------
 app.keys = [config.session.secret];
 
 // ─── Session Store (in-memory) ──────────────────────────────
