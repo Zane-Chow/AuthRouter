@@ -1,4 +1,4 @@
-# Personal SSO Middleware
+# AuthRouter
 
 一个面向个人与小型团队的自托管 SSO 中间件。它连接多个上游 OIDC / OAuth2 身份提供商，并向下游Wiki、博客等应用提供统一的 OpenID Connect 登录入口。
 
@@ -16,7 +16,7 @@
 上游 IdP（Google / GitHub / Keycloak / Azure AD 等）
                     | OIDC / OAuth2
                     v
-          Personal SSO Middleware
+                  AuthRouter
                     | OpenID Connect
                     v
 下游应用（Mailcow / Wiki / Blog / 自建服务等）
@@ -96,7 +96,7 @@ MySQL 数据库和账号需要提前创建，并允许应用账号连接及创�
 
 ```bash
 docker compose up -d --build
-docker compose logs -f sso-middleware
+docker compose logs -f authrouter
 ```
 
 默认只监听宿主机的 `127.0.0.1:3000`，不会直接暴露到公网。外部流量应由 HTTPS 反向代理转发。
@@ -104,7 +104,7 @@ docker compose logs -f sso-middleware
 如果使用自动生成的管理员密码，可在启动日志中找到它：
 
 ```bash
-docker compose logs sso-middleware
+docker compose logs authrouter
 ```
 
 ### 3. 配置 HTTPS 反向代理
@@ -264,7 +264,7 @@ https://sso.example.com/sso/google/callback
 
 ### 管理登录密码在哪里
 
-若未设置 `ADMIN_PASSWORD`，运行 `docker compose logs sso-middleware` 查看首次启动时生成的密码。修改 `.env` 后，运行 `docker compose up -d --force-recreate` 重建容器，使新的环境变量生效。
+若未设置 `ADMIN_PASSWORD`，运行 `docker compose logs authrouter` 查看首次启动时生成的密码。修改 `.env` 后，运行 `docker compose up -d --force-recreate` 重建容器，使新的环境变量生效。
 
 ### 重启后出现 403 或授权失败
 

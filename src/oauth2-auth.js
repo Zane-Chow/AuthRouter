@@ -50,7 +50,7 @@ async function fetchUserProfile(row, accessToken) {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Accept': 'application/json',
-      'User-Agent': 'Personal-SSO-Middleware',
+      'User-Agent': 'AuthRouter',
     },
   });
 
@@ -74,7 +74,7 @@ async function fetchFallbackEmail(row, accessToken) {
     headers: {
       'Authorization': `Bearer ${accessToken}`,
       'Accept': 'application/json',
-      'User-Agent': 'Personal-SSO-Middleware',
+      'User-Agent': 'AuthRouter',
     },
   });
 

@@ -1,9 +1,9 @@
 services:
-  sso-middleware:
+  authrouter:
     build:
       context: .
-    image: personal-sso:local
-    container_name: personal-sso
+    image: authrouter:local
+    container_name: authrouter
     restart: unless-stopped
     ports:
       # Only bind to localhost — nginx reverse proxy handles external traffic

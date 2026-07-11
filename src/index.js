@@ -1,5 +1,5 @@
 /**
- * Personal SSO Middleware — Main Entry Point
+ * AuthRouter - Main Entry Point
  *
  * A generic OIDC proxy that supports multiple upstream Identity Providers
  * (configured via the /admin panel) and multiple downstream Relying Parties.
@@ -808,7 +808,7 @@ app.listen(port, () => {
   const issuerDisplay = config.sso.baseUrl || `http://localhost:${port}`;
   console.log('');
   console.log('╔══════════════════════════════════════════════════╗');
-  console.log('║          Personal SSO Middleware Started          ║');
+  console.log('║               AuthRouter Started                  ║');
   console.log('╠══════════════════════════════════════════════════╣');
   console.log(`║  Port:      ${String(port).padEnd(37)}║`);
   console.log(`║  Issuer:    ${issuerDisplay.padEnd(37)}║`);
