@@ -1,381 +1,353 @@
 # Personal SSO Middleware
 
-通用的个人 OIDC 代理中间件 — 支持多个上游身份提供商（Google、GitHub、Keycloak、Azure AD 等任意 OIDC/OAuth2 提供者）和多个下游网站接入，**全部通过管理面板配置，无需改代码或重启服务**。
+一个面向个人与小型团队的自托管 SSO 中间件。它连接多个上游 OIDC / OAuth2 身份提供商，并向下游Wiki、博客等应用提供统一的 OpenID Connect 登录入口。
 
-## 架构
+**原生支持 SQLite 与 MySQL 两种数据库后端，可在部署时按场景选择，无需修改代码。**
 
+> 项目目前适合单实例部署。管理员会话和部分 OIDC 临时状态保存在进程内存中，暂不支持无状态多副本或高可用集群。
+
+**进阶文档：** [上游 / 下游配置指南](docs/upstream-downstream-config.md)，包含 Issuer、回调地址、OIDC/OAuth2 字段以及常见配置误区。
+
+## 它解决什么问题
+
+当多个应用需要统一登录，但它们支持的身份源、账号字段或 OIDC 配置方式不一致时，本项目可以作为中间层：
+
+```text
+上游 IdP（Google / GitHub / Keycloak / Azure AD 等）
+                    | OIDC / OAuth2
+                    v
+          Personal SSO Middleware
+                    | OpenID Connect
+                    v
+下游应用（Mailcow / Wiki / Blog / 自建服务等）
 ```
-上游 IdP (Google / GitHub / Keycloak / ...)
-         ↕ OAuth2 / OIDC
-   ┌─────────────────────┐
-   │   SSO 中间件         │   ← 你在这里
-   │  (oidc-provider)     │
-   └─────────────────────┘
-         ↕ OIDC
-下游 RP (Mailcow / Wiki / Blog / ...)
-```
 
-- **对上游 IdP**：中间件是一个 OAuth2 / OIDC 客户端
-- **对下游 RP**：中间件是一个标准 OIDC 身份提供者
-- **核心功能**：统一身份认证入口，可将上游身份映射为下游系统所需的任意身份
+- 面向上游时，它是 OIDC / OAuth2 Client。
+- 面向下游时，它是标准 OIDC Provider。
+- 上游身份可以原样传递，也可以按下游客户端映射为其他账号。
 
-### 特性
+## 主要能力
 
-- ✅ 多上游 IdP：标准 OIDC（自动发现，如 Google、Keycloak、Azure AD）+ 通用 OAuth2（手动配置端点，如 GitHub），全部通过管理面板添加
-- ✅ 多下游 RP：通过管理面板动态注册 OIDC 客户端，Client ID / Secret 由服务器自动生成
-- ✅ 全热更新：新增/修改/删除上游 IdP 或下游客户端**立即生效**，无需重启服务
-- ✅ 灵活的身份映射：每个客户端独立配置映射关系
-- ✅ 智能映射策略：0 映射直通原始身份 / 1 映射自动使用 / 多映射展示选择器
-- ✅ 管理面板：上游 IdP 管理 + 客户端管理 + 映射管理，一站式配置
-- ✅ Docker Compose 一键部署
-- ✅ 自动生成和持久化 JWKS 签名密钥（RSA256）
-- ✅ 存储层可选 SQLite（默认，单文件零配置）或 MySQL，部署时通过 `DB_DRIVER` 选择
-- ✅ 客户端密钥、上游 IdP 密钥均加密存储（AES-256-GCM），支持自定义或自动生成加密密钥
-- ✅ 单 IdP 自动跳转，多 IdP 展示选择器
+- 支持多个标准 OIDC 上游，通过 Issuer 自动发现端点
+- 支持多个通用 OAuth2 上游，可手动配置授权、令牌和用户信息端点
+- 通过管理面板动态管理上游 IdP、下游客户端和身份映射
+- 配置变更即时生效，无需修改代码或重启服务
+- 每个下游客户端独立生成 Client ID 与 Client Secret
+- 支持 SQLite（默认）和 MySQL
+- 使用 AES-256-GCM 加密存储上下游 Client Secret
+- 自动生成并持久化 JWKS、加密密钥和 Session 签名密钥
+- 单上游自动跳转，多上游展示登录方式选择页
 
----
+## SQLite 与 MySQL
+
+项目对 SQLite 和 MySQL 使用同一套数据访问接口与业务逻辑。通过 `DB_DRIVER` 选择数据库，应用首次启动时会自动创建所需的数据表。
+
+| 数据库 | 适合场景 | 部署要求 | 数据位置 |
+| --- | --- | --- | --- |
+| SQLite（默认） | 个人部署、单机服务、快速体验 | 无需额外数据库服务 | `${DATA_DIR}/sso.db` |
+| MySQL | 已有 MySQL 基础设施、希望独立管理数据库与备份 | 可访问的 MySQL 实例，并预先创建数据库和账号 | 外部 MySQL 实例 |
+
+两种数据库都完整支持上游 IdP、下游客户端和身份映射管理。无论选择哪一种，`DATA_DIR` 仍需持久化，因为 JWKS、加密密钥和 Session 密钥保存在其中。
+
+> `DB_DRIVER` 只负责选择后端，不会在 SQLite 与 MySQL 之间迁移已有数据。已有部署切换数据库前，需要自行完成数据迁移并同时备份 `DATA_DIR`。
 
 ## 快速部署
 
-### 1. 配置环境变量
+### 前置条件
+
+- Docker Engine
+- Docker Compose v2
+- 一个已解析到服务器的域名
+- 能为该域名提供 HTTPS 的反向代理，例如 Nginx、Caddy 或 Traefik
+
+公网部署必须使用 HTTPS，并显式设置正确的 `SSO_BASE_URL`。OIDC Issuer、回调地址和 Cookie 都依赖这个地址。
+
+### 1. 创建配置
+
+在项目目录执行：
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`，按需修改以下选项（**所有选项均为可选**，不配置也可直接启动）：
+至少修改以下两项：
 
-| 变量 | 说明 | 默认值 |
-|------|------|--------|
-| `SSO_BASE_URL` | SSO 中间件的外部访问地址（建议 HTTPS） | `http://localhost:3000` |
-| `SSO_PORT` | 内部监听端口（反向代理后端） | `3000` |
-| `DB_DRIVER` | 数据库类型：`sqlite` 或 `mysql` | `sqlite` |
-| `ADMIN_USERNAME` | 管理面板用户名 | `admin` |
-| `ADMIN_PASSWORD` | 管理面板密码（不设置则自动生成随机强密码，打印在 Docker 日志中） | 随机生成 |
-| `ENCRYPTION_KEY` | 密钥加密密钥（可选，留空则首次运行自动生成） | 自动生成 |
-| `SESSION_SECRET` | Session 签名密钥（可选，留空则首次运行自动生成并持久化） | 自动生成 |
-| `DATA_DIR` | 数据持久化目录（SQLite 数据库、JWKS 密钥、Session 密钥等） | `/app/data` |
+```dotenv
+SSO_BASE_URL=https://sso.example.com
+ADMIN_PASSWORD=replace-with-a-long-random-password
+```
 
-> **注意**：Session 密钥与 JWKS、加密密钥一样，会在首次启动时生成并持久化到 `DATA_DIR/session.key`，容器重启不会导致已登录的管理员会话或进行中的登录流程失效。
+`SSO_BASE_URL` 不要以 `/` 结尾。未设置 `ADMIN_PASSWORD` 时，服务会生成随机密码并输出到容器日志；生产环境建议显式设置。
 
-> **注意**：上游 IdP（如 Google、GitHub）不再通过 `.env` 配置，全部通过 `/admin` 管理面板添加和管理。
+数据库默认为 SQLite，不需要额外配置。如需使用 MySQL，在 `.env` 中增加：
 
-使用 MySQL 时，还需配置：
+```dotenv
+DB_DRIVER=mysql
+MYSQL_HOST=mysql.example.internal
+MYSQL_PORT=3306
+MYSQL_USER=sso
+MYSQL_PASSWORD=replace-with-a-database-password
+MYSQL_DATABASE=sso
+```
 
-| 变量 | 说明 |
-|------|------|
-| `MYSQL_HOST` | MySQL 主机 |
-| `MYSQL_PORT` | MySQL 端口 |
-| `MYSQL_USER` | MySQL 用户名 |
-| `MYSQL_PASSWORD` | MySQL 密码 |
-| `MYSQL_DATABASE` | MySQL 数据库名 |
+MySQL 数据库和账号需要提前创建，并允许应用账号连接及创建数据表。容器内的 `localhost` 指向 SSO 容器自身；MySQL 运行在其他主机或容器时，`MYSQL_HOST` 必须填写该服务可被 SSO 容器访问的主机名。
 
-### 2. 配置 Nginx 反向代理
+### 2. 构建并启动
 
-项目提供了示例 `nginx.conf`，可直接参考：
+```bash
+docker compose up -d --build
+docker compose logs -f sso-middleware
+```
+
+默认只监听宿主机的 `127.0.0.1:3000`，不会直接暴露到公网。外部流量应由 HTTPS 反向代理转发。
+
+如果使用自动生成的管理员密码，可在启动日志中找到它：
+
+```bash
+docker compose logs sso-middleware
+```
+
+### 3. 配置 HTTPS 反向代理
+
+仓库中的 [`nginx.conf`](nginx.conf) 提供了完整示例。核心配置如下：
 
 ```nginx
-server {
-    listen 80;
-    server_name sso.example.com;
-    return 301 https://$host$request_uri;
-}
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
 
-server {
-    listen 443 ssl http2;
-    server_name sso.example.com;
-
-    ssl_certificate     /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://127.0.0.1:3000;
-        proxy_set_header Host              $host;
-        proxy_set_header X-Real-IP         $remote_addr;
-        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_set_header X-Forwarded-Host  $host;
-    }
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Forwarded-Host  $host;
 }
 ```
 
-### 3. 启动 SSO 中间件
+反向代理使用的域名必须与 `.env` 中的 `SSO_BASE_URL` 完全一致，包括协议和端口。
+
+### 4. 验证服务
 
 ```bash
-docker compose up -d
-```
-
-验证服务是否正常：
-
-```bash
-# 检查日志
-docker compose logs -f
-
-# 验证 OIDC Discovery
+curl https://sso.example.com/health
 curl https://sso.example.com/.well-known/openid-configuration
 ```
 
-### 4. 添加上游身份提供商
+`/health` 应返回 `status: ok`，Discovery 文档中的 `issuer` 应与 `SSO_BASE_URL` 完全一致。
 
-1. 打开管理面板：`https://sso.example.com/admin`
-2. 使用 `.env` 中配置的管理员账号登录
-3. 在 **上游身份提供商** 区域添加 IdP
+### 5. 完成首次配置
 
-#### 添加 OIDC 类型的 IdP（如 Google）
+1. 打开 `https://sso.example.com/admin` 并登录。
+2. 添加至少一个上游 OIDC 或 OAuth2 身份提供商。
+3. 在上游平台登记回调地址：`https://sso.example.com/sso/{provider_id}/callback`。
+4. 在管理面板创建下游 OIDC 客户端，并立即保存只展示一次的 Client Secret。
+5. 将 Discovery URL、Client ID 和 Client Secret 填入下游应用。
+6. 从下游应用发起一次完整登录测试。
 
-在上游 IdP 的开发者平台创建 OAuth 客户端后，在管理面板中填入：
+上游与下游的 Issuer、回调地址和端点很容易混淆。完整字段说明及 Google、GitHub、Keycloak 示例见[上游 / 下游配置指南](docs/upstream-downstream-config.md)。
 
-| 字段 | 示例值 | 说明 |
-|------|--------|------|
-| 标识 | `google` | URL 友好的唯一标识 |
-| 名称 | `Google` | 登录页显示名 |
-| 类型 | `oidc` | 标准 OIDC，自动发现端点 |
-| Issuer | `https://accounts.google.com` | OIDC Issuer URL |
-| Client ID | *(从 Google Cloud Console 获取)* | |
-| Client Secret | *(从 Google Cloud Console 获取)* | |
-| 回调地址 | — | 自动生成：`{SSO_BASE_URL}/sso/google/callback` |
+## 配置上游与下游
 
-> 在 Google Cloud Console 中，需将 `https://sso.example.com/sso/google/callback` 添加为**已授权的重定向 URI**。
+### 上游 OIDC
 
-#### 添加 OAuth2 类型的 IdP（如 GitHub）
+适用于 Google、Keycloak、Azure AD、Authentik 等支持 OpenID Connect Discovery 的服务。
 
-对于非标准 OIDC 的 OAuth2 提供者，需手动配置端点和字段映射：
+| 字段 | 示例 | 说明 |
+| --- | --- | --- |
+| 标识 | `google` | 唯一且适合放入 URL，决定回调路径 |
+| 名称 | `Google` | 登录页显示名称 |
+| 类型 | `oidc` | 使用 OIDC 自动发现 |
+| Issuer | `https://accounts.google.com` | 上游服务自己的 Issuer |
+| Client ID / Secret | 上游平台签发 | 在上游平台创建 OAuth Client 后获得 |
+| Scope | `openid email profile` | 通常保留默认值 |
 
-| 字段 | 示例值 |
-|------|--------|
-| 标识 | `github` |
-| 名称 | `GitHub` |
-| 类型 | `oauth2` |
-| Authorize URL | `https://github.com/login/oauth/authorize` |
-| Token URL | `https://github.com/login/oauth/access_token` |
-| Userinfo URL | `https://api.github.com/user` |
-| Email URL（可选） | `https://api.github.com/user/emails` |
-| Scope | `user:email` |
-| 字段映射 | `id` → `id`, `email` → `email`, `name` → `login`, `avatar` → `avatar_url` |
+对应的上游回调地址为：
 
-> 在 GitHub Developer Settings 中，需将 `https://sso.example.com/sso/github/callback` 设置为 **Authorization callback URL**。
+```text
+https://sso.example.com/sso/google/callback
+```
 
-### 5. 注册下游客户端
+### 上游 OAuth2
 
-在管理面板的 **OIDC 客户端** 区域添加客户端：
+适用于 GitHub 等不提供标准 OIDC Discovery 的服务。除 Client ID 和 Secret 外，还需要配置 Authorize URL、Token URL、Userinfo URL，以及上游 JSON 响应的字段映射。
 
-| 字段 | 示例值 | 说明 |
-|------|--------|------|
-| 名称 | `Mailcow 邮件` | 客户端显示名 |
-| 回调地址 | `https://mail.example.com/...` | 下游系统的 OAuth 回调地址 |
-| 认证方式 | `client_secret_post` | 或 `client_secret_basic` |
-| Scope | `openid email profile` | 授权范围 |
+### 下游 OIDC 客户端
 
-> **Client ID 和 Client Secret 由服务器自动生成**，创建成功后仅显示一次，请妥善保存。添加后**立即生效**，无需重启服务。
+所有下游应用共用同一组 OIDC 端点，通过各自的 Client ID、Client Secret 和回调地址区分：
 
-> 后续如需修改回调地址、名称、认证方式或 Scope，可点击客户端列表中的**编辑**按钮，在展开的表单中直接修改并保存——**Client ID 和 Client Secret 保持不变**，无需更新下游系统的配置。仅当勾选"重新生成 Client Secret"时才会轮换密钥（此时需要同步更新下游系统）。
-
-### 6. 配置下游系统
-
-以 Mailcow 为例，在其管理面板配置 OIDC 集成：
-
-| 设置 | 值 |
-|------|------|
+| 配置项 | 值 |
+| --- | --- |
+| Issuer | `https://sso.example.com` |
+| Discovery | `https://sso.example.com/.well-known/openid-configuration` |
 | Authorization Endpoint | `https://sso.example.com/auth` |
 | Token Endpoint | `https://sso.example.com/token` |
-| User Info Endpoint | `https://sso.example.com/me` |
-| Client ID | 与管理面板中生成的 Client ID 一致 |
-| Client Secret | 与管理面板中生成的 Client Secret 一致 |
+| UserInfo Endpoint | `https://sso.example.com/me` |
+| JWKS URI | `https://sso.example.com/jwks` |
 | Scopes | `openid email profile` |
 
-也可以直接使用 OIDC Discovery URL 进行自动配置：
+优先使用 Discovery URL 自动配置。若下游 Token 交换提示客户端认证失败，可在管理面板中切换 `client_secret_post` 与 `client_secret_basic`。
 
-```
-https://sso.example.com/.well-known/openid-configuration
-```
+### 身份映射
 
-### 7. 添加身份映射（可选）
+身份映射按“下游客户端 + 上游提供商 + 上游身份”生效：
 
-默认情况下，中间件会**直通**上游 IdP 返回的原始身份（如 Gmail 邮箱），无需配置映射。
+| 匹配的映射数量 | 登录行为 |
+| --- | --- |
+| 0 | 直接使用上游返回的身份 |
+| 1 | 自动使用映射后的身份 |
+| 多条 | 展示账号选择页 |
 
-如果下游系统需要不同的身份（例如用 Gmail 登录但使用自定义域名邮箱），可以在管理面板添加映射：
+例如，可以让 `yourname@gmail.com` 登录 Mailcow 后映射为 `postmaster@example.com`，同时在其他下游应用中继续使用原始 Gmail 身份。
 
-| 字段 | 示例值 |
-|------|--------|
-| 客户端 | `Mailcow 邮件 (client-id)` |
-| 登录平台 | `google` |
-| 来源身份 | `yourname@gmail.com` |
-| 目标身份 | `postmaster@example.com` |
+## 环境变量
 
-**映射策略：**
+所有变量及注释也可在 [`.env.example`](.env.example) 中查看。
 
-| 映射数量 | 行为 |
-|----------|------|
-| 0 条 | 直通上游身份（默认） |
-| 1 条 | 自动使用映射后的身份 |
-| 多条 | 弹出选择器让用户选择 |
+| 变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `SSO_BASE_URL` | `http://localhost:3000` | 对外访问地址及 OIDC Issuer；公网部署必须设置 |
+| `SSO_PORT` | `3000` | 应用监听端口 |
+| `DB_DRIVER` | `sqlite` | 数据库驱动：`sqlite` 或 `mysql` |
+| `ADMIN_USERNAME` | `admin` | 管理面板用户名 |
+| `ADMIN_PASSWORD` | 自动生成 | 管理面板密码 |
+| `DATA_DIR` | `/app/data` | SQLite、JWKS 和自动生成密钥的持久化目录 |
+| `ENCRYPTION_KEY` | 自动生成并持久化 | 32 字节 hex 或 base64 密钥，用于加密 Client Secret |
+| `SESSION_SECRET` | 自动生成并持久化 | Session Cookie 签名密钥 |
+| `MYSQL_HOST` | `localhost` | MySQL 地址，仅 `DB_DRIVER=mysql` 时使用 |
+| `MYSQL_PORT` | `3306` | MySQL 端口 |
+| `MYSQL_USER` | 无 | MySQL 用户名，使用 MySQL 时必填 |
+| `MYSQL_PASSWORD` | 无 | MySQL 密码 |
+| `MYSQL_DATABASE` | 无 | MySQL 数据库名，使用 MySQL 时必填 |
 
-### 8. 测试登录
+使用 MySQL 时，Compose 文件不会自动创建数据库，需要连接到已存在的 MySQL 实例。应用会自动创建业务表，但不会创建 MySQL Database 或用户。
 
-1. 打开下游系统登录页面（如 Mailcow）
-2. 点击 SSO 登录按钮
-3. 选择登录方式（仅配了一个 IdP 时自动跳转）
-4. 完成上游认证后自动返回下游系统
+## 生产部署检查
 
----
+公开到公网前，至少确认以下事项：
+
+- `SSO_BASE_URL` 使用 HTTPS，且没有结尾斜杠
+- `ADMIN_PASSWORD` 已设置为独立的强密码
+- 应用端口只监听回环地址或内网地址
+- `/app/data` 对应的 Docker Volume 已持久化并纳入备份
+- 若使用 MySQL，数据库与 `DATA_DIR` 中的密钥文件一起备份
+- 反向代理正确传递 `Host` 和 `X-Forwarded-*` 请求头
+- 在反向代理层为 `/admin` 配置请求限流，或按部署条件限制来源地址
+- 上游回调地址与下游 Redirect URI 均逐字符匹配
+- 管理面板不经过 CDN 缓存，且已限制日志和备份文件的访问权限
+- 升级前已备份数据，并在测试环境验证完整登录流程
+
+`DATA_DIR` 中的 `jwks.json`、`encryption.key` 和 `session.key` 与数据库同等重要。丢失 `encryption.key` 将无法解密已保存的 Client Secret；替换 `jwks.json` 会使旧令牌的签名密钥失效。
+
+### 当前限制
+
+- 仅推荐单实例运行；进程内 Session Store 不支持多副本共享
+- 重启会中断正在进行中的授权流程
+- 不提供管理面板的多因素认证、细粒度权限或审计日志
+- 不内置 TLS 终止，必须配合反向代理
+- 不负责自动备份或密钥轮换
+
+这些限制使它更适合个人服务、小团队和可信网络边界内的自托管场景，而不是企业级身份基础设施。
+
+## 常见问题
+
+### 上游提示 `redirect_uri_mismatch`
+
+确认上游平台登记的地址与 `{SSO_BASE_URL}/sso/{provider_id}/callback` 完全一致，重点检查协议、域名、端口、标识和结尾斜杠。
+
+### 下游提示 Issuer 不匹配
+
+确认下游配置的 Issuer、Discovery 文档中的 `issuer` 和 `SSO_BASE_URL` 三者逐字符一致。
+
+### 登录后跳转到 404
+
+确认管理面板登记的下游回调地址与下游应用实际发送的 `redirect_uri` 完全一致。
+
+### 管理登录密码在哪里
+
+若未设置 `ADMIN_PASSWORD`，运行 `docker compose logs sso-middleware` 查看首次启动时生成的密码。修改 `.env` 后，运行 `docker compose up -d --force-recreate` 重建容器，使新的环境变量生效。
+
+### 重启后出现 403 或授权失败
+
+确认 Compose 的 `sso-data` Volume 仍正确挂载。已有登录 Cookie 依赖持久化的 `session.key`；正在进行中的授权流程在重启后需要重新发起。
 
 ## 开发
 
-```bash
-# 安装依赖
-npm install
+需要 Node.js 20 或更高版本。
 
-# 开发模式（文件变更自动重启）
+```bash
+npm install
 npm run dev
+```
+
+默认服务地址为 `http://localhost:3000`，管理面板为 `http://localhost:3000/admin`。
+
+常用命令：
+
+```bash
+npm start
+npm run dev
+node --check src/index.js
 ```
 
 ### 技术栈
 
-| 组件 | 技术 |
-|------|------|
-| 运行时 | Node.js 20+ (ESM) |
-| Web 框架 | Koa |
-| OIDC Provider | oidc-provider |
-| OIDC Client | openid-client |
-| 模板引擎 | EJS |
-| 数据库 | better-sqlite3 / mysql2 |
-| 加密 | jose (JWKS), Node.js crypto (AES-256-GCM) |
+| 领域 | 实现 |
+| --- | --- |
+| Runtime / Web | Node.js 20、Koa、EJS |
+| OIDC Provider | `oidc-provider` |
+| OIDC Client | `openid-client` |
+| 数据库 | `better-sqlite3`、`mysql2` |
+| 密钥与加密 | `jose`、Node.js `crypto` |
 
 ### 项目结构
 
-```
+```text
 src/
-├── index.js                 # 主入口：路由、OIDC 交互、管理面板
-├── config.js                # 环境变量配置
-├── provider.js              # oidc-provider 实例创建
-├── oidc-adapter.js          # 自定义 oidc-provider Adapter（Client 热加载）
-├── upstream-providers.js    # 上游 IdP 统一调度层
-├── upstream-providers-db.js # 上游 IdP 数据库 CRUD
-├── oidc-auth.js             # OIDC 类型上游适配器
-├── oauth2-auth.js           # OAuth2 类型上游适配器
-├── clients.js               # 下游客户端管理
-├── mapping.js               # 身份映射管理
-├── keys.js                  # JWKS 密钥生成与持久化
-├── crypto-util.js           # AES-256-GCM 加密工具
-├── database.js              # 数据库入口
-├── render.js                # EJS 模板渲染
-├── db/
-│   ├── index.js             # 数据库驱动初始化
-│   ├── schema.js            # 表结构定义（SQLite + MySQL）
-│   ├── sqlite-driver.js     # SQLite 驱动
-│   └── mysql-driver.js      # MySQL 驱动
-└── views/
-    ├── admin.ejs             # 管理面板
-    ├── login-selector.ejs    # 多 IdP 登录选择器
-    ├── select-account.ejs    # 多映射身份选择器
-    ├── login.ejs             # 登录页
-    └── error.ejs             # 错误页
+|-- index.js                  # 应用入口、路由与 OIDC 交互流程
+|-- provider.js               # 下游 OIDC Provider 配置
+|-- oidc-auth.js              # 上游 OIDC 适配器
+|-- oauth2-auth.js            # 上游 OAuth2 适配器
+|-- upstream-providers-db.js  # 上游配置持久化
+|-- clients.js                # 下游客户端管理
+|-- mapping.js                # 身份映射
+|-- keys.js                   # JWKS 生成与持久化
+|-- crypto-util.js            # Client Secret 加解密
+|-- db/                       # SQLite / MySQL 驱动与表结构
+`-- views/                    # 管理与登录页面
 ```
 
----
+## 健康检查与标准端点
 
-## API 端点
+| 路径 | 用途 |
+| --- | --- |
+| `/health` | 服务状态与已启用的上游列表 |
+| `/.well-known/openid-configuration` | OIDC Discovery |
+| `/auth` | Authorization Endpoint |
+| `/token` | Token Endpoint |
+| `/me` | UserInfo Endpoint |
+| `/jwks` | JSON Web Key Set |
+| `/admin` | 管理面板 |
 
-### OIDC 标准端点
+管理接口属于内部实现，不承诺跨版本稳定。自动化集成应优先依赖标准 OIDC 端点。
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/.well-known/openid-configuration` | GET | OIDC Discovery 文档 |
-| `/auth` | GET | OIDC 授权端点 |
-| `/token` | POST | OIDC Token 端点 |
-| `/me` | GET | OIDC UserInfo 端点 |
-| `/jwks` | GET | JSON Web Key Set |
+## 文档结构
 
-### 管理端点
+- 本 README：项目介绍、SQLite / MySQL 部署、生产检查、开发与贡献入口
+- [上游 / 下游配置指南](docs/upstream-downstream-config.md)：Issuer、回调地址、OIDC/OAuth2 字段和常见配置误区
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/admin` | GET | 管理面板 |
-| `/admin/login` | POST | 管理员登录 |
-| `/admin/logout` | POST | 管理员登出 |
-| `/admin/clients` | POST | 添加 OIDC 客户端 |
-| `/admin/clients/:id/update` | POST | 修改 OIDC 客户端（名称/回调地址/认证方式/Scope，可选重置密钥） |
-| `/admin/clients/:id/delete` | POST | 删除 OIDC 客户端 |
-| `/admin/upstream-providers` | POST | 添加上游 IdP |
-| `/admin/upstream-providers/:id/delete` | POST | 删除上游 IdP |
-| `/admin/upstream-providers/:id/toggle` | POST | 启用/禁用上游 IdP |
-| `/admin/mappings` | POST | 添加身份映射 |
-| `/admin/mappings/:id/delete` | POST | 删除身份映射 |
+`docs` 目录用于容纳需要独立查阅的专题指南，避免 README 再次膨胀。部署方式和环境变量以 README 与 `.env.example` 为准。
 
-### API 端点
+## 贡献
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/api/clients` | GET | 客户端列表 JSON（需管理员登录） |
-| `/api/mappings` | GET | 映射列表 JSON（需管理员登录，支持 `?client_id=` 过滤） |
-| `/health` | GET | 健康检查 |
+欢迎通过 Issue 报告缺陷、提出兼容性需求，或提交 Pull Request。提交前请：
 
-### 内部端点（OIDC 交互流程）
+1. 说明使用的上游 IdP、下游应用、数据库类型和部署方式。
+2. 对行为变更补充可复现步骤或测试方法。
+3. 不要提交 `.env`、数据库、Client Secret、令牌或持久化密钥。
+4. 保持改动聚焦，并同步更新受影响的文档。
 
-| 端点 | 方法 | 说明 |
-|------|------|------|
-| `/interaction/:uid` | GET | OIDC 交互处理（登录/授权） |
-| `/interaction/:uid/select-idp` | POST | IdP 选择 |
-| `/interaction/:uid/federated` | GET | 联合身份处理 |
-| `/interaction/:uid/select` | POST | 多映射身份选择 |
-| `/sso/:provider/callback` | GET | 上游 IdP 统一回调 |
-
----
-
-## 数据库表结构
-
-| 表名 | 用途 |
-|------|------|
-| `oidc_clients` | 下游 OIDC 客户端注册信息 |
-| `upstream_providers` | 上游身份提供商配置 |
-| `identity_mappings` | 上游身份 → 下游身份映射关系 |
-
----
-
-## 安全说明
-
-- 🔐 客户端密钥和上游 IdP 密钥使用 **AES-256-GCM** 加密存储
-- 🔑 JWKS 签名密钥（RSA256）自动生成并持久化，支持容器重启后密钥不变
-- 🔒 加密密钥支持通过 `ENCRYPTION_KEY` 环境变量显式指定，也可首次运行自动生成并保存到 `DATA_DIR/encryption.key`
-- 🔑 Session 签名密钥支持通过 `SESSION_SECRET` 环境变量显式指定，也可首次运行自动生成并保存到 `DATA_DIR/session.key`，容器重启不会导致已登录会话失效
-- 🛡️ OAuth 流程使用 CSRF state 参数和 nonce 防护
-- 🍪 Session 使用签名 Cookie + 内存存储，2 小时过期（活动自动续期），自动清理
-- 🔏 OIDC 授权自动批准（Consent 自动通过，因为两端均为自有服务）
-
----
-
-## 故障排除
-
-### 登录后 404 错误
-- 检查下游客户端的回调地址是否与下游系统配置完全匹配
-
-### Token 交换失败
-- 尝试将客户端的认证方式在 `client_secret_post` 和 `client_secret_basic` 之间切换
-
-### 上游 OIDC 回调报错
-- 检查上游 IdP 中的重定向 URI 是否为 `{SSO_BASE_URL}/sso/{provider_id}/callback`
-- OIDC 类型的 IdP 确保 Issuer URL 正确且支持 OpenID Connect Discovery
-
-### 上游 OAuth2 回调报错
-- 检查 Authorization callback URL 是否配置正确
-- 确认 Token URL 和 Userinfo URL 可正常访问
-- 检查字段映射是否与上游 API 返回的 JSON 字段一致
-
-### 管理面板无法登录
-- 检查 `.env` 中的 `ADMIN_USERNAME` 和 `ADMIN_PASSWORD` 是否正确配置
-
-### 访问下一个页面时突然 403 Forbidden
-这通常不是 Cloudflare/Nginx 反代问题，而是应用侧的登录会话（session）失效导致，常见原因：
-- **进程重启导致会话签名失效**：`v2.0.0` 之前，Session 签名密钥每次进程启动都随机生成且不持久化，容器重启、镜像更新或异常退出后，所有已签发的登录 Cookie 会立即失效。现在密钥会持久化到 `DATA_DIR/session.key`（与 JWKS、加密密钥同机制），只需确认该目录挂载了持久化卷（参考 `docker-compose.yml` 中的 `sso-data` volume），重启不会再影响已登录会话。
-- **会话本身已过期**：管理面板登录态默认 2 小时有效（有操作会自动续期），超过后重新登录即可。
-- 若你确实部署了**多个副本/进程**做负载均衡：当前实现的会话存储是单进程内存，多副本场景下请求可能被转发到未持有该会话的实例而报 403。这种拓扑需要引入外部共享的 session 存储（如 Redis），不在当前默认实现范围内。
-
-### 尚未配置任何上游身份提供商
-- 前往 `/admin` 面板添加至少一个上游 IdP
-- 上游 IdP 在 v2 中不再通过 `.env` 配置，而是通过管理面板管理
-
----
+安全问题请不要在公开 Issue 中附带真实凭据、令牌、邮箱或回调参数。先移除敏感信息，再提供最小复现。
 
 ## License
 
-MIT
+本项目基于 [MIT License](LICENSE) 开源。

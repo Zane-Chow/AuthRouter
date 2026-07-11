@@ -1,8 +1,8 @@
 # 上游 / 下游配置指南
 
-本文档专门说明「上游身份提供商（IdP）」和「下游客户端（RP）」两侧应该怎么配置，
+本文档是进阶配置指南，专门说明「上游身份提供商（IdP）」和「下游客户端（RP）」两侧应该怎么配置，
 包括：多个上游的回调地址怎么填、下游的 Authorization / Token / UserInfo 等端点怎么填、
-Issuer 到底应该填谁的域名。配合 [README.md](../README.md) 一起看。
+Issuer 到底应该填谁的域名。首次部署、SQLite / MySQL 选择和环境变量以 [README.md](../README.md) 为准。
 
 ---
 

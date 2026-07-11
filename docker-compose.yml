@@ -1,13 +1,15 @@
 services:
   sso-middleware:
-    image: your-registry/personal-sso:latest
+    build:
+      context: .
+    image: personal-sso:local
     container_name: personal-sso
     restart: unless-stopped
     ports:
       # Only bind to localhost — nginx reverse proxy handles external traffic
       - "127.0.0.1:${SSO_PORT:-3000}:${SSO_PORT:-3000}"
     volumes:
-      # Persist SQLite database, JWKS keys, and encryption key across restarts
+      # Always persists keys; also persists the database when using SQLite
       - sso-data:${DATA_DIR:-/app/data}
     env_file:
       - .env
