@@ -1,8 +1,6 @@
 services:
   authrouter:
-    build:
-      context: .
-    image: authrouter:local
+    image: ${AUTHROUTER_IMAGE:-ghcr.io/yiyi-16/authrouter:latest}
     container_name: authrouter
     restart: unless-stopped
     ports:

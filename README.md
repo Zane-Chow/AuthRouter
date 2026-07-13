@@ -79,12 +79,12 @@ sudo chown "$USER":"$USER" /opt/authrouter
 cd /opt/authrouter
 ~~~
 
-以 `v2.0` 为例，可以直接从发布标签下载部署文件：
+可以直接从默认分支下载最新部署文件：
 
 ~~~bash
-curl -fLO https://raw.githubusercontent.com/YIYI-16/AuthRouter/v2.0/docker-compose.yml
-curl -fLO https://raw.githubusercontent.com/YIYI-16/AuthRouter/v2.0/.env.example
-curl -fLO https://raw.githubusercontent.com/YIYI-16/AuthRouter/v2.0/nginx.conf
+curl -fLO https://raw.githubusercontent.com/YIYI-16/AuthRouter/main/docker-compose.yml
+curl -fLO https://raw.githubusercontent.com/YIYI-16/AuthRouter/main/.env.example
+curl -fLO https://raw.githubusercontent.com/YIYI-16/AuthRouter/main/nginx.conf
 ~~~
 
 也可以通过发布包、SCP 或服务器管理面板复制这三个文件。不需要在服务器克隆源码或编译镜像。
@@ -99,12 +99,13 @@ chmod 600 .env
 至少设置：
 
 ~~~dotenv
+AUTHROUTER_IMAGE=ghcr.io/yiyi-16/authrouter:v2.0
 SSO_BASE_URL=https://sso.example.com
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=replace-with-a-long-random-password
 ~~~
 
-`SSO_BASE_URL` 必须与用户访问地址完全一致，不能以 `/` 结尾。生产环境建议显式设置 `ADMIN_PASSWORD`；不设置时，程序首次启动会生成密码并保存到 `DATA_DIR/admin.password`。
+`AUTHROUTER_IMAGE` 建议固定到明确的发布标签，避免 `latest` 在未确认时自动切换版本。`SSO_BASE_URL` 必须与用户访问地址完全一致，不能以 `/` 结尾。生产环境建议显式设置 `ADMIN_PASSWORD`；不设置时，程序首次启动会生成密码并保存到 `DATA_DIR/admin.password`。
 
 SQLite 是默认数据库，不需要额外配置。使用 MySQL 时，在 `.env` 中填写已经创建好的数据库和账号：
 
@@ -129,13 +130,11 @@ Token 只需要 `read:packages` 权限，不要写入 `.env` 或提交到仓库�
 
 ### 4. 拉取并启动镜像
 
-当前发布版本以 `v2.0` 为例。先拉取镜像，再将它标记为 Compose 文件使用的本地镜像名：
+Compose 会读取 `.env` 中的 `AUTHROUTER_IMAGE`。拉取并启动指定版本：
 
 ~~~bash
-export IMAGE=ghcr.io/yiyi-16/authrouter:v2.0
-docker pull "$IMAGE"
-docker tag "$IMAGE" authrouter:local
-docker compose up -d --force-recreate
+docker compose pull
+docker compose up -d
 ~~~
 
 查看启动日志：
@@ -192,10 +191,9 @@ curl https://sso.example.com/.well-known/openid-configuration
 先确认 GitHub Actions 已经完成对应标签的构建，再在服务器执行：
 
 ~~~bash
-export IMAGE=ghcr.io/yiyi-16/authrouter:v2.1
-docker pull "$IMAGE"
-docker tag "$IMAGE" authrouter:local
-docker compose up -d --force-recreate
+# 编辑 .env：AUTHROUTER_IMAGE=ghcr.io/yiyi-16/authrouter:v2.1
+docker compose pull
+docker compose up -d
 docker compose ps
 ~~~
 
@@ -204,10 +202,9 @@ docker compose ps
 ### 回滚到旧版本
 
 ~~~bash
-export IMAGE=ghcr.io/yiyi-16/authrouter:v2.0
-docker pull "$IMAGE"
-docker tag "$IMAGE" authrouter:local
-docker compose up -d --force-recreate
+# 编辑 .env：AUTHROUTER_IMAGE=ghcr.io/yiyi-16/authrouter:v2.0
+docker compose pull
+docker compose up -d
 ~~~
 
 不要删除 `sso-data` Volume。`jwks.json`、`encryption.key`、`session.key` 和 `admin.password` 与数据库同等重要，丢失密钥可能导致旧令牌失效或已保存的 Client Secret 无法解密。
@@ -268,6 +265,7 @@ https://sso.example.com/sso/google/callback
 
 | 变量 | 默认值 | 说明 |
 | --- | --- | --- |
+| `AUTHROUTER_IMAGE` | `ghcr.io/yiyi-16/authrouter:latest` | GitHub Actions 发布的镜像；生产环境建议固定版本标签 |
 | `SSO_BASE_URL` | `http://localhost:3000` | 对外地址及 OIDC Issuer；公网部署必须设置 |
 | `SSO_PORT` | `3000` | 容器内部监听端口 |
 | `DB_DRIVER` | `sqlite` | `sqlite` 或 `mysql` |
