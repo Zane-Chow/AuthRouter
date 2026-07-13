@@ -127,6 +127,7 @@
     <div class="providers">
       <% providers.forEach(p => { %>
         <form method="POST" action="/interaction/<%= uid %>/select-idp">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <input type="hidden" name="provider" value="<%= p.id %>">
           <button type="submit" class="btn-provider">
             <% if (p.icon === 'google') { %>

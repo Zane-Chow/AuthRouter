@@ -15,6 +15,7 @@ export function createSqliteDriver(dataDir) {
   const db = new Database(dbPath);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
+  db.pragma('busy_timeout = 5000');
 
   return {
     dialect: 'sqlite',

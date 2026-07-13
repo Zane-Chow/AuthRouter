@@ -13,6 +13,9 @@ export function createMysqlDriver({ host, port, user, password, database }) {
     database,
     waitForConnections: true,
     connectionLimit: 10,
+    enableKeepAlive: true,
+    charset: 'utf8mb4',
+    timezone: 'Z',
   });
 
   return {

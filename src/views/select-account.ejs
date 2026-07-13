@@ -200,6 +200,7 @@
     <div class="accounts">
       <% accounts.forEach((account, index) => { %>
         <form class="account-form" method="POST" action="/interaction/<%= uid %>/select">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <input type="hidden" name="selected_account" value="<%= account.target_identity %>">
           <button type="submit" class="account-btn" style="animation-delay: <%= 0.1 + index * 0.06 %>s">
             <div class="account-btn-inner">

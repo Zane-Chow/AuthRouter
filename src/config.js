@@ -1,85 +1,113 @@
 import 'dotenv/config';
-import crypto from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
-// ─── Session secret: persisted to disk (mirrors keys.js / crypto-util.js) ───
-// A secret that changes on every restart invalidates every cookie signed
-// with the old one the moment the process restarts (container restart,
-// `npm run dev --watch`, OOM, image update, ...) — every logged-in admin
-// session and in-flight OIDC interaction gets silently rejected as an
-// invalid signature, which surfaces as an intermittent 403 on the very
-// next click. Persisting it (like the JWKS and encryption keys already
-// are) makes restarts a non-event for existing sessions.
-const dataDir = process.env.DATA_DIR || '/app/data';
-const SESSION_SECRET_PATH = path.join(dataDir, 'session.key');
-
-function loadOrCreateSessionSecret() {
-  if (process.env.SESSION_SECRET) {
-    return process.env.SESSION_SECRET.trim();
+function parsePort(value, name) {
+  const port = Number.parseInt(value, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error(`${name} must be an integer between 1 and 65535`);
   }
-
-  if (fs.existsSync(SESSION_SECRET_PATH)) {
-    return fs.readFileSync(SESSION_SECRET_PATH, 'utf-8').trim();
-  }
-
-  console.log('🔑 Generating new session-signing secret...');
-  const secret = crypto.randomBytes(32).toString('hex');
-
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-  fs.writeFileSync(SESSION_SECRET_PATH, secret, { mode: 0o600 });
-  console.log(`✅ Session secret saved to ${SESSION_SECRET_PATH}`);
-
-  return secret;
+  return port;
 }
 
-const sessionSecret = loadOrCreateSessionSecret();
+function normalizeBaseUrl(value) {
+  if (!value) return '';
+  const url = new URL(value);
+  if (!['http:', 'https:'].includes(url.protocol)) {
+    throw new Error('SSO_BASE_URL must use http or https');
+  }
+  url.pathname = url.pathname.replace(/\/$/, '');
+  return url.toString().replace(/\/$/, '');
+}
 
-// ─── Auto-generate admin password if not provided ───────────
-const adminPassword = process.env.ADMIN_PASSWORD || crypto.randomBytes(16).toString('base64url');
-const adminPasswordGenerated = !process.env.ADMIN_PASSWORD;
+function ensureDirectory(directory) {
+  fs.mkdirSync(directory, { recursive: true });
+}
 
-const config = {
-  sso: {
-    baseUrl: process.env.SSO_BASE_URL || '',
-    port: parseInt(process.env.SSO_PORT || '3000', 10),
-  },
+function loadOrCreateTextSecret({ envValue, filePath, bytes, label }) {
+  if (envValue?.trim()) return { value: envValue.trim(), created: false };
 
-  db: {
-    // 'sqlite' (default) or 'mysql' — chosen at deploy time, not switchable at runtime.
-    driver: (process.env.DB_DRIVER || 'sqlite').toLowerCase(),
-    mysql: {
-      host: process.env.MYSQL_HOST || 'localhost',
-      port: parseInt(process.env.MYSQL_PORT || '3306', 10),
-      user: process.env.MYSQL_USER,
-      password: process.env.MYSQL_PASSWORD,
-      database: process.env.MYSQL_DATABASE,
+  if (fs.existsSync(filePath)) {
+    const existing = fs.readFileSync(filePath, 'utf8').trim();
+    if (existing) return { value: existing, created: false };
+  }
+
+  ensureDirectory(path.dirname(filePath));
+  const secret = crypto.randomBytes(bytes).toString('base64url');
+  const temporaryPath = `${filePath}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, secret, { mode: 0o600 });
+  fs.renameSync(temporaryPath, filePath);
+  console.info(`${label} created at ${filePath}`);
+  return { value: secret, created: true };
+}
+
+export function createConfig(env = process.env) {
+  const dataDir = path.resolve(env.DATA_DIR || 'data');
+  const driver = (env.DB_DRIVER || 'sqlite').toLowerCase();
+  if (!['sqlite', 'mysql'].includes(driver)) {
+    throw new Error('DB_DRIVER must be either sqlite or mysql');
+  }
+
+  const sessionSecret = loadOrCreateTextSecret({
+    envValue: env.SESSION_SECRET,
+    filePath: path.join(dataDir, 'session.key'),
+    bytes: 32,
+    label: 'Session signing secret',
+  });
+  const adminPassword = loadOrCreateTextSecret({
+    envValue: env.ADMIN_PASSWORD,
+    filePath: path.join(dataDir, 'admin.password'),
+    bytes: 16,
+    label: 'Admin password',
+  });
+
+  const config = {
+    env: env.NODE_ENV || 'development',
+    sso: {
+      baseUrl: normalizeBaseUrl(env.SSO_BASE_URL || ''),
+      port: parsePort(env.SSO_PORT || '3000', 'SSO_PORT'),
     },
-  },
+    db: {
+      driver,
+      mysql: {
+        host: env.MYSQL_HOST || 'localhost',
+        port: parsePort(env.MYSQL_PORT || '3306', 'MYSQL_PORT'),
+        user: env.MYSQL_USER,
+        password: env.MYSQL_PASSWORD,
+        database: env.MYSQL_DATABASE,
+      },
+    },
+    admin: {
+      username: env.ADMIN_USERNAME || 'admin',
+      password: adminPassword.value,
+      passwordGenerated: adminPassword.created,
+    },
+    session: {
+      secret: sessionSecret.value,
+      maxAgeMs: 2 * 60 * 60 * 1000,
+    },
+    upstream: {
+      timeoutMs: Number.parseInt(env.UPSTREAM_TIMEOUT_MS || '10000', 10),
+    },
+    dataDir,
+  };
 
-  admin: {
-    username: process.env.ADMIN_USERNAME || 'admin',
-    password: adminPassword,
-    passwordGenerated: adminPasswordGenerated,
-  },
+  config.sso.publicBaseUrl = config.sso.baseUrl || `http://localhost:${config.sso.port}`;
 
-  session: {
-    secret: sessionSecret,
-  },
+  if (!Number.isInteger(config.upstream.timeoutMs) || config.upstream.timeoutMs < 1000) {
+    throw new Error('UPSTREAM_TIMEOUT_MS must be an integer of at least 1000');
+  }
+  if (driver === 'mysql' && (!config.db.mysql.user || !config.db.mysql.database)) {
+    throw new Error('DB_DRIVER=mysql requires MYSQL_USER and MYSQL_DATABASE');
+  }
+  if (config.env === 'production' && config.sso.baseUrl && !config.sso.baseUrl.startsWith('https://')) {
+    throw new Error('SSO_BASE_URL must use https in production');
+  }
 
-  dataDir: process.env.DATA_DIR || '/app/data',
-};
-
-if (config.db.driver === 'mysql' && (!config.db.mysql.user || !config.db.mysql.database)) {
-  console.error('\n❌ DB_DRIVER=mysql requires MYSQL_USER and MYSQL_DATABASE to be set.\n');
-  process.exit(1);
+  return Object.freeze(config);
 }
 
-// Upstream Identity Providers are configured entirely through the /admin
-// panel and stored in the database — there is no env-var-based provider
-// config or startup requirement here. If zero providers are enabled,
-// the admin panel surfaces that instead of refusing to start.
+const config = createConfig();
 
 export default config;

@@ -28,7 +28,17 @@ async function init() {
  */
 export async function getDb() {
   if (!driverPromise) {
-    driverPromise = init();
+    driverPromise = init().catch((error) => {
+      driverPromise = null;
+      throw error;
+    });
   }
   return driverPromise;
+}
+
+export async function closeDb() {
+  if (!driverPromise) return;
+  const driver = await driverPromise;
+  driverPromise = null;
+  await driver.close();
 }

@@ -41,6 +41,24 @@ function storeFor(model) {
   return store;
 }
 
+function removeIndexes(model, id, payload) {
+  if (model === 'Session' && payload?.uid && uidIndex.get(payload.uid) === id) uidIndex.delete(payload.uid);
+  if (payload?.userCode && userCodeIndex.get(payload.userCode) === id) userCodeIndex.delete(payload.userCode);
+  if (GRANTABLE.has(model) && payload?.grantId) {
+    const set = grantIndex.get(payload.grantId);
+    set?.delete(`${model}:${id}`);
+    if (set?.size === 0) grantIndex.delete(payload.grantId);
+  }
+}
+
+function removeEntry(model, id) {
+  const store = storeFor(model);
+  const entry = store.get(id);
+  if (!entry) return;
+  store.delete(id);
+  removeIndexes(model, id, entry.payload);
+}
+
 class MemoryAdapter {
   constructor(model) {
     this.model = model;
@@ -48,6 +66,7 @@ class MemoryAdapter {
 
   async upsert(id, payload, expiresIn) {
     const store = storeFor(this.model);
+    removeEntry(this.model, id);
     const expiresAt = expiresIn ? Date.now() + expiresIn * 1000 : undefined;
     store.set(id, { payload, expiresAt });
 
@@ -75,7 +94,7 @@ class MemoryAdapter {
     const entry = store.get(id);
     if (!entry) return undefined;
     if (entry.expiresAt && entry.expiresAt < Date.now()) {
-      store.delete(id);
+      removeEntry(this.model, id);
       return undefined;
     }
     return entry.payload;
@@ -101,8 +120,7 @@ class MemoryAdapter {
   }
 
   async destroy(id) {
-    const store = storeFor(this.model);
-    store.delete(id);
+    removeEntry(this.model, id);
   }
 
   async revokeByGrantId(grantId) {
@@ -110,11 +128,21 @@ class MemoryAdapter {
     if (!set) return;
     for (const key of set) {
       const [model, id] = key.split(/:(.+)/);
-      storeFor(model).delete(id);
+      removeEntry(model, id);
     }
     grantIndex.delete(grantId);
   }
 }
+
+const cleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [model, store] of stores) {
+    for (const [id, entry] of store) {
+      if (entry.expiresAt && entry.expiresAt < now) removeEntry(model, id);
+    }
+  }
+}, 5 * 60 * 1000);
+cleanupTimer.unref?.();
 
 class ClientAdapter {
   async upsert() {

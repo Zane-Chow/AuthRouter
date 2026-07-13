@@ -1,6 +1,7 @@
 import { getEnabledProviderRows, getProviderConfig } from './upstream-providers-db.js';
 import * as oidcAuth from './oidc-auth.js';
 import * as oauth2Auth from './oauth2-auth.js';
+import { AppError, UpstreamError, ValidationError } from './errors.js';
 
 /**
  * Upstream Providers — unified interface for all upstream IdPs.
@@ -45,13 +46,18 @@ export async function getAuthUrl(providerName, state, nonce) {
     throw new Error(`Unknown or disabled upstream provider: ${providerName}`);
   }
 
-  switch (row.type) {
-    case 'oidc':
-      return oidcAuth.getAuthUrl(row, state, nonce);
-    case 'oauth2':
-      return oauth2Auth.getAuthUrl(row, state);
-    default:
-      throw new Error(`Unsupported provider type: ${row.type}`);
+  try {
+    switch (row.type) {
+      case 'oidc':
+        return await oidcAuth.getAuthUrl(row, state, nonce);
+      case 'oauth2':
+        return oauth2Auth.getAuthUrl(row, state);
+      default:
+        throw new ValidationError(`Unsupported provider type: ${row.type}`);
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new UpstreamError(`${providerName} 授权端点不可用`, { cause: error });
   }
 }
 
@@ -70,19 +76,26 @@ export async function handleCallback(providerName, ctx, sessionData) {
     throw new Error(`Unknown or disabled upstream provider: ${providerName}`);
   }
 
-  switch (row.type) {
-    case 'oidc':
-      return oidcAuth.handleCallback(row, ctx, sessionData);
+  try {
+    switch (row.type) {
+      case 'oidc':
+        return await oidcAuth.handleCallback(row, ctx, sessionData);
 
-    case 'oauth2': {
-      const code = ctx.query.code;
-      if (!code) {
-        throw new Error(`Missing authorization code from ${providerName}`);
+      case 'oauth2': {
+        const code = ctx.query.code;
+        if (!code) throw new ValidationError(`${providerName} 未返回 authorization code`);
+        return await oauth2Auth.handleCallback(row, code, sessionData.oauth_state, ctx.query.state);
       }
-      return oauth2Auth.handleCallback(row, code, sessionData.oauth_state, ctx.query.state);
-    }
 
-    default:
-      throw new Error(`Unsupported provider type: ${row.type}`);
+      default:
+        throw new ValidationError(`Unsupported provider type: ${row.type}`);
+    }
+  } catch (error) {
+    if (error instanceof AppError) throw error;
+    throw new UpstreamError(`${providerName} 认证失败`, { cause: error });
   }
+}
+
+export function clearProviderCache(providerId) {
+  oidcAuth.clearProviderCache(providerId);
 }

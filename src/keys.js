@@ -16,10 +16,13 @@ export async function getJWKS() {
   if (fs.existsSync(KEYS_PATH)) {
     try {
       const data = JSON.parse(fs.readFileSync(KEYS_PATH, 'utf-8'));
+      if (!Array.isArray(data.keys) || data.keys.length === 0 || !data.keys[0].d) {
+        throw new Error('JWKS does not contain a private signing key');
+      }
       console.log('✅ Loaded existing JWKS keys');
       return data;
     } catch (err) {
-      console.warn('⚠️  Failed to read existing JWKS, generating new keys:', err.message);
+      throw new Error(`Failed to load JWKS at ${KEYS_PATH}: ${err.message}`, { cause: err });
     }
   }
 
@@ -40,7 +43,9 @@ export async function getJWKS() {
   if (!fs.existsSync(dataDir)) {
     fs.mkdirSync(dataDir, { recursive: true });
   }
-  fs.writeFileSync(KEYS_PATH, JSON.stringify(jwks, null, 2), { mode: 0o600 });
+  const temporaryPath = `${KEYS_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(jwks, null, 2), { mode: 0o600 });
+  fs.renameSync(temporaryPath, KEYS_PATH);
   console.log(`✅ JWKS keys saved to ${KEYS_PATH}`);
 
   return jwks;

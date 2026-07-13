@@ -1,5 +1,6 @@
-import { Issuer } from 'openid-client';
+import { Issuer, custom } from 'openid-client';
 import config from './config.js';
+import { logger } from './logger.js';
 
 /**
  * Generic OIDC upstream adapter — works with any standards-compliant OIDC
@@ -10,19 +11,20 @@ import config from './config.js';
 // provider_id -> { client, cacheKey } — avoids re-discovering on every request,
 // but re-discovers if the admin changes issuer/client_id for that provider.
 const clientCache = new Map();
+custom.setHttpOptionsDefaults({ timeout: config.upstream.timeoutMs });
 
 async function getClient(row) {
   const cacheKey = `${row.issuer}::${row.client_id}`;
   const cached = clientCache.get(row.provider_id);
   if (cached && cached.cacheKey === cacheKey) return cached.client;
 
-  console.log(`🔍 Discovering OIDC configuration for ${row.provider_id} (${row.issuer})...`);
+  logger.info('discovering upstream OIDC configuration', { providerId: row.provider_id, issuer: row.issuer });
   const issuer = await Issuer.discover(row.issuer);
 
   const client = new issuer.Client({
     client_id: row.client_id,
     client_secret: row.client_secret,
-    redirect_uris: [`${config.sso.baseUrl}/sso/${row.provider_id}/callback`],
+    redirect_uris: [`${config.sso.publicBaseUrl}/sso/${encodeURIComponent(row.provider_id)}/callback`],
     response_types: ['code'],
   });
 
@@ -53,7 +55,7 @@ export async function handleCallback(row, ctx, sessionData) {
   const params = client.callbackParams(ctx.req);
 
   const tokenSet = await client.callback(
-    `${config.sso.baseUrl}/sso/${row.provider_id}/callback`,
+    `${config.sso.publicBaseUrl}/sso/${encodeURIComponent(row.provider_id)}/callback`,
     params,
     { state: sessionData.oauth_state, nonce: sessionData.oauth_nonce }
   );

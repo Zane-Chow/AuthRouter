@@ -1,18 +1,14 @@
 import ejs from 'ejs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const viewsDir = path.join(__dirname, 'views');
+const viewsDir = path.join(path.dirname(fileURLToPath(import.meta.url)), 'views');
 
-/**
- * Render an EJS template and set it as the response body.
- * @param {object} ctx - Koa context
- * @param {string} template - Template name (without .ejs extension)
- * @param {object} data - Data to pass to the template
- */
 export async function render(ctx, template, data = {}) {
   const filePath = path.join(viewsDir, `${template}.ejs`);
-  ctx.body = await ejs.renderFile(filePath, data);
-  ctx.type = 'text/html';
+  ctx.body = await ejs.renderFile(filePath, {
+    csrfToken: ctx.state.csrfToken || '',
+    ...data,
+  });
+  ctx.type = 'text/html; charset=utf-8';
 }

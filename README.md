@@ -77,7 +77,7 @@ SSO_BASE_URL=https://sso.example.com
 ADMIN_PASSWORD=replace-with-a-long-random-password
 ```
 
-`SSO_BASE_URL` 不要以 `/` 结尾。未设置 `ADMIN_PASSWORD` 时，服务会生成随机密码并输出到容器日志；生产环境建议显式设置。
+`SSO_BASE_URL` 不要以 `/` 结尾。未设置 `ADMIN_PASSWORD` 时，服务会在首次启动时生成随机密码，保存到 `DATA_DIR/admin.password` 并输出一次；生产环境建议显式设置。
 
 数据库默认为 SQLite，不需要额外配置。如需使用 MySQL，在 `.env` 中增加：
 
@@ -209,10 +209,11 @@ https://sso.example.com/sso/google/callback
 | `SSO_PORT` | `3000` | 应用监听端口 |
 | `DB_DRIVER` | `sqlite` | 数据库驱动：`sqlite` 或 `mysql` |
 | `ADMIN_USERNAME` | `admin` | 管理面板用户名 |
-| `ADMIN_PASSWORD` | 自动生成 | 管理面板密码 |
-| `DATA_DIR` | `/app/data` | SQLite、JWKS 和自动生成密钥的持久化目录 |
+| `ADMIN_PASSWORD` | 首次启动生成并持久化 | 管理面板密码 |
+| `DATA_DIR` | 本地 `./data`；容器 `/app/data` | SQLite、管理员密码、JWKS 和自动生成密钥的持久化目录 |
 | `ENCRYPTION_KEY` | 自动生成并持久化 | 32 字节 hex 或 base64 密钥，用于加密 Client Secret |
 | `SESSION_SECRET` | 自动生成并持久化 | Session Cookie 签名密钥 |
+| `UPSTREAM_TIMEOUT_MS` | `10000` | 上游发现、Token、UserInfo 和邮箱请求的超时毫秒数 |
 | `MYSQL_HOST` | `localhost` | MySQL 地址，仅 `DB_DRIVER=mysql` 时使用 |
 | `MYSQL_PORT` | `3306` | MySQL 端口 |
 | `MYSQL_USER` | 无 | MySQL 用户名，使用 MySQL 时必填 |
@@ -236,7 +237,7 @@ https://sso.example.com/sso/google/callback
 - 管理面板不经过 CDN 缓存，且已限制日志和备份文件的访问权限
 - 升级前已备份数据，并在测试环境验证完整登录流程
 
-`DATA_DIR` 中的 `jwks.json`、`encryption.key` 和 `session.key` 与数据库同等重要。丢失 `encryption.key` 将无法解密已保存的 Client Secret；替换 `jwks.json` 会使旧令牌的签名密钥失效。
+`DATA_DIR` 中的 `jwks.json`、`encryption.key`、`session.key` 和自动生成的 `admin.password` 与数据库同等重要。丢失 `encryption.key` 将无法解密已保存的 Client Secret；替换 `jwks.json` 会使旧令牌的签名密钥失效。
 
 ### 当前限制
 
@@ -286,7 +287,8 @@ npm run dev
 ```bash
 npm start
 npm run dev
-node --check src/index.js
+npm run check
+npm test
 ```
 
 ### 技术栈
@@ -303,10 +305,15 @@ node --check src/index.js
 
 ```text
 src/
-|-- index.js                  # 应用入口、路由与 OIDC 交互流程
+|-- index.js                  # 进程入口与退出信号
+|-- server.js                 # HTTP 监听和优雅关闭
+|-- app.js                    # Koa / OIDC 应用装配
 |-- provider.js               # 下游 OIDC Provider 配置
 |-- oidc-auth.js              # 上游 OIDC 适配器
 |-- oauth2-auth.js            # 上游 OAuth2 适配器
+|-- routes/                   # 认证交互、后台和 API 路由
+|-- security.js               # CSRF、凭据比较和登录限流
+|-- validation.js             # 管理输入校验与规范化
 |-- upstream-providers-db.js  # 上游配置持久化
 |-- clients.js                # 下游客户端管理
 |-- mapping.js                # 身份映射
@@ -315,6 +322,8 @@ src/
 |-- db/                       # SQLite / MySQL 驱动与表结构
 `-- views/                    # 管理与登录页面
 ```
+
+`test/` 包含输入校验、会话、安全、OAuth2 兼容性和应用级烟雾测试。`npm test` 会启动临时 SQLite 实例验证 Discovery、后台 CSRF 和管理员会话。
 
 ## 健康检查与标准端点
 

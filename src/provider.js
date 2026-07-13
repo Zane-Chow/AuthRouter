@@ -16,7 +16,7 @@ export async function createProvider() {
   const jwks = await getJWKS();
   const enabledClients = await getEnabledClients();
 
-  const issuer = config.sso.baseUrl || `http://localhost:${config.sso.port}`;
+  const issuer = config.sso.publicBaseUrl;
   const provider = new Provider(issuer, {
     // Custom adapter: Client lookups query the database live (hot-reload);
     // all other models use in-process memory storage.
@@ -84,7 +84,7 @@ export async function createProvider() {
       RefreshToken: 86400,     // 24 hours
       Grant: 1209600,          // 14 days — how long a consent grant is remembered
       Interaction: 600,        // 10 minutes — time window for a login/consent flow
-      Session: 1,              // 1 second (effectively disables session caching)
+      Session: 300,            // 5 minutes — enough for authorization code exchange and UserInfo lookup
     },
 
     // Extra security settings

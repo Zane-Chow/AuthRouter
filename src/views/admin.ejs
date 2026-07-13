@@ -423,6 +423,7 @@
           </div>
         <% } %>
         <form method="POST" action="/admin/login">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="form-group">
             <label for="login-username">用户名</label>
             <input type="text" id="login-username" name="username" placeholder="admin" required autocomplete="username">
@@ -444,6 +445,7 @@
         <span>AuthRouter</span>
       </div>
       <form method="POST" action="/admin/logout" style="margin:0">
+        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
         <button type="submit" class="btn-sm">退出登录</button>
       </form>
     </nav>
@@ -508,6 +510,7 @@
                       <div class="actions-cell">
                         <button type="button" class="btn-sm" onclick="document.getElementById('edit-client-<%= c.client_id %>').classList.toggle('open')">编辑</button>
                         <form method="POST" action="/admin/clients/<%= c.client_id %>/delete" onsubmit="return confirm('确定删除客户端 <%= c.client_name %>？相关映射也会被删除。')" style="margin:0">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                           <button type="submit" class="btn-danger">删除</button>
                         </form>
                       </div>
@@ -517,6 +520,7 @@
                     <td colspan="6" style="padding:0; border-bottom:1px solid rgba(255,255,255,0.03);">
                       <div class="edit-row-inner">
                         <form method="POST" action="/admin/clients/<%= c.client_id %>/update">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                           <div class="form-row">
                             <div class="form-group"><label>名称</label><input type="text" name="client_name" value="<%= c.client_name %>" required></div>
                             <div class="form-group"><label>回调地址 (逗号分隔)</label><input type="text" name="redirect_uris" value="<%= uris.join(', ') %>" required></div>
@@ -553,6 +557,7 @@
         </h3>
         <p class="hint-text">Client ID 和 Client Secret 将由服务器自动生成，创建后仅显示一次。</p>
         <form method="POST" action="/admin/clients">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="form-row">
             <div class="form-group"><label for="add-client-name">名称</label><input type="text" id="add-client-name" name="client_name" required></div>
             <div class="form-group"><label for="add-client-uris">回调地址 (逗号分隔)</label><input type="text" id="add-client-uris" name="redirect_uris" required></div>
@@ -594,9 +599,11 @@
                     <td>
                       <div class="actions-cell">
                         <form method="POST" action="/admin/upstream-providers/<%= p.id %>/toggle" style="margin:0">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                           <button type="submit" class="btn-sm"><%= p.enabled ? '禁用' : '启用' %></button>
                         </form>
                         <form method="POST" action="/admin/upstream-providers/<%= p.id %>/delete" onsubmit="return confirm('确定删除上游 IdP <%= p.display_name %>？')" style="margin:0">
+                          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                           <button type="submit" class="btn-danger">删除</button>
                         </form>
                       </div>
@@ -615,6 +622,7 @@
           添加上游 IdP
         </h3>
         <form method="POST" action="/admin/upstream-providers">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="form-row">
             <div class="form-group"><label for="add-idp-id">标识 (英文, 如 google / company-sso)</label><input type="text" id="add-idp-id" name="provider_id" required></div>
             <div class="form-group"><label for="add-idp-name">显示名称</label><input type="text" id="add-idp-name" name="display_name" required></div>
@@ -689,6 +697,7 @@
                     <td style="color:var(--text-secondary)"><%= m.display_name || '-' %></td>
                     <td>
                       <form method="POST" action="/admin/mappings/<%= m.id %>/delete" onsubmit="return confirm('确定删除此映射？')" style="margin:0">
+                        <input type="hidden" name="_csrf" value="<%= csrfToken %>">
                         <button type="submit" class="btn-danger">删除</button>
                       </form>
                     </td>
@@ -706,6 +715,7 @@
           添加映射
         </h3>
         <form method="POST" action="/admin/mappings">
+          <input type="hidden" name="_csrf" value="<%= csrfToken %>">
           <div class="form-row">
             <div class="form-group">
               <label for="add-map-client">客户端</label>

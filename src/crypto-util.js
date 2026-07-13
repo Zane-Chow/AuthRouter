@@ -31,6 +31,7 @@ function loadOrCreateKey() {
 
   if (fs.existsSync(KEY_PATH)) {
     cachedKey = Buffer.from(fs.readFileSync(KEY_PATH, 'utf-8').trim(), 'base64');
+    if (cachedKey.length !== 32) throw new Error(`Invalid encryption key at ${KEY_PATH}`);
     return cachedKey;
   }
 
@@ -40,7 +41,9 @@ function loadOrCreateKey() {
   if (!fs.existsSync(config.dataDir)) {
     fs.mkdirSync(config.dataDir, { recursive: true });
   }
-  fs.writeFileSync(KEY_PATH, key.toString('base64'), { mode: 0o600 });
+  const temporaryPath = `${KEY_PATH}.${process.pid}.tmp`;
+  fs.writeFileSync(temporaryPath, key.toString('base64'), { mode: 0o600 });
+  fs.renameSync(temporaryPath, KEY_PATH);
   console.log(`✅ Encryption key saved to ${KEY_PATH}`);
 
   cachedKey = key;
