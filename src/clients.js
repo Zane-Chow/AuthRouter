@@ -35,7 +35,17 @@ function toOidcClient(row) {
  */
 export async function getAllClients() {
   const db = await getDb();
-  return db.all('SELECT * FROM oidc_clients ORDER BY created_at DESC');
+  const [rows, permissions] = await Promise.all([
+    db.all('SELECT * FROM oidc_clients ORDER BY created_at DESC'),
+    db.all('SELECT client_id, provider_id FROM client_upstream_permissions ORDER BY provider_id'),
+  ]);
+  const byClient = new Map();
+  for (const permission of permissions) {
+    const providerIds = byClient.get(permission.client_id) || [];
+    providerIds.push(permission.provider_id);
+    byClient.set(permission.client_id, providerIds);
+  }
+  return rows.map((row) => ({ ...row, allowed_providers: byClient.get(row.client_id) || [] }));
 }
 
 /**
@@ -52,6 +62,34 @@ export async function getEnabledClients() {
 export async function getClientById(clientId) {
   const db = await getDb();
   return db.get('SELECT * FROM oidc_clients WHERE client_id = ?', [clientId]);
+}
+
+/**
+ * Return the configured upstream whitelist for a client. An empty list means
+ * unrestricted access, preserving the behaviour of clients created before
+ * per-client permissions were introduced.
+ */
+export async function getAllowedProviderIds(clientId) {
+  const db = await getDb();
+  const rows = await db.all(
+    'SELECT provider_id FROM client_upstream_permissions WHERE client_id = ? ORDER BY provider_id',
+    [clientId],
+  );
+  return rows.map((row) => row.provider_id);
+}
+
+/** Replace a client's upstream whitelist. Passing [] grants access to all. */
+export async function setAllowedProviderIds(clientId, providerIds = []) {
+  const db = await getDb();
+  const normalized = [...new Set(providerIds)];
+  await db.run('DELETE FROM client_upstream_permissions WHERE client_id = ?', [clientId]);
+  const insert = db.dialect === 'mysql' ? 'INSERT IGNORE' : 'INSERT OR IGNORE';
+  for (const providerId of normalized) {
+    await db.run(
+      `${insert} INTO client_upstream_permissions (client_id, provider_id) VALUES (?, ?)`,
+      [clientId, providerId],
+    );
+  }
 }
 
 /**
@@ -82,9 +120,10 @@ export async function addClient({
   redirectUris,
   tokenAuthMethod = 'client_secret_post',
   scope = 'openid email profile',
+  allowedProviderIds = [],
 }) {
   const db = await getDb();
-  return db.run(
+  const result = await db.run(
     `INSERT INTO oidc_clients (client_id, client_secret, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, scope)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     [
@@ -98,6 +137,8 @@ export async function addClient({
       scope,
     ]
   );
+  await setAllowedProviderIds(clientId, allowedProviderIds);
+  return result;
 }
 
 /**
@@ -115,11 +156,12 @@ export async function updateClient(clientId, {
   tokenAuthMethod = 'client_secret_post',
   scope = 'openid email profile',
   enabled = 1,
+  allowedProviderIds,
 }) {
   const db = await getDb();
 
   if (clientSecret) {
-    return db.run(
+    const result = await db.run(
       `UPDATE oidc_clients
        SET client_name = ?, client_secret = ?, redirect_uris = ?, token_endpoint_auth_method = ?, scope = ?, enabled = ?
        WHERE client_id = ?`,
@@ -133,9 +175,11 @@ export async function updateClient(clientId, {
         clientId,
       ]
     );
+    if (allowedProviderIds !== undefined) await setAllowedProviderIds(clientId, allowedProviderIds);
+    return result;
   }
 
-  return db.run(
+  const result = await db.run(
     `UPDATE oidc_clients
      SET client_name = ?, redirect_uris = ?, token_endpoint_auth_method = ?, scope = ?, enabled = ?
      WHERE client_id = ?`,
@@ -148,6 +192,8 @@ export async function updateClient(clientId, {
       clientId,
     ]
   );
+  if (allowedProviderIds !== undefined) await setAllowedProviderIds(clientId, allowedProviderIds);
+  return result;
 }
 
 /**

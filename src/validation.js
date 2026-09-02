@@ -57,7 +57,17 @@ export function parseClientInput(body) {
     redirectUris: parseRedirectUris(body.redirect_uris),
     tokenAuthMethod: authMethod,
     scope: requiredString(body.scope || 'openid email profile', 'Scope', { maxLength: 255 }),
+    allowedProviderIds: parseProviderIds(body.allowed_providers),
   };
+}
+
+export function parseProviderIds(value) {
+  if (value === undefined || value === null || value === '') return [];
+  const values = Array.isArray(value) ? value : [value];
+  if (values.length > 100) throw new ValidationError('上游权限数量不能超过 100');
+  return [...new Set(values.map((providerId) => (
+    requiredString(providerId, '上游权限', { maxLength: 50, pattern: PROVIDER_ID })
+  )))];
 }
 
 function parseHttpUrl(value, label, required = false) {

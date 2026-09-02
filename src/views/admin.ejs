@@ -399,6 +399,18 @@
     }
     .checkbox-row input[type="checkbox"] { width: auto; accent-color: var(--accent); }
     .checkbox-row label { margin: 0; cursor: pointer; font-size: 0.78rem; color: var(--text-secondary); }
+    .permission-box {
+      margin-top: 0.875rem;
+      padding: 0.75rem;
+      border: 1px solid var(--border-subtle);
+      border-radius: var(--radius);
+      background: rgba(255, 255, 255, 0.02);
+    }
+    .permission-title { font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); }
+    .permission-options { display: flex; flex-wrap: wrap; gap: 0.5rem 1rem; margin-top: 0.55rem; }
+    .permission-option { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.78rem; color: var(--text-secondary); cursor: pointer; }
+    .permission-option input { width: auto; accent-color: var(--accent); }
+    .permission-help { margin-top: 0.5rem; font-size: 0.73rem; color: var(--text-muted); }
     .hint-text { font-size: 0.78rem; color: var(--text-muted); margin-bottom: 0.875rem; }
   </style>
 </head>
@@ -495,7 +507,7 @@
         <% } else { %>
           <div class="table-scroll">
             <table>
-              <thead><tr><th>Client ID</th><th>名称</th><th>回调地址</th><th>认证方式</th><th>状态</th><th>操作</th></tr></thead>
+              <thead><tr><th>Client ID</th><th>名称</th><th>回调地址</th><th>认证方式</th><th>上游权限</th><th>状态</th><th>操作</th></tr></thead>
               <tbody>
                 <% clients.forEach(c => {
                   const uris = typeof c.redirect_uris === 'string' ? JSON.parse(c.redirect_uris) : c.redirect_uris;
@@ -505,6 +517,13 @@
                     <td><%= c.client_name %></td>
                     <td class="mono" style="font-size:0.73rem; max-width:200px; word-wrap:break-word"><%= uris.join(', ') %></td>
                     <td><span class="badge"><%= c.token_endpoint_auth_method %></span></td>
+                    <td>
+                      <% if (!c.allowed_providers || c.allowed_providers.length === 0) { %>
+                        <span class="badge">全部</span>
+                      <% } else { c.allowed_providers.forEach(providerId => { %>
+                        <span class="badge"><%= providerId %></span>
+                      <% }); } %>
+                    </td>
                     <td><span class="status-dot <%= c.enabled ? 'active' : 'inactive' %>"></span></td>
                     <td>
                       <div class="actions-cell">
@@ -517,7 +536,7 @@
                     </td>
                   </tr>
                   <tr id="edit-client-<%= c.client_id %>" class="edit-row">
-                    <td colspan="6" style="padding:0; border-bottom:1px solid rgba(255,255,255,0.03);">
+                    <td colspan="7" style="padding:0; border-bottom:1px solid rgba(255,255,255,0.03);">
                       <div class="edit-row-inner">
                         <form method="POST" action="/admin/clients/<%= c.client_id %>/update">
                           <input type="hidden" name="_csrf" value="<%= csrfToken %>">
@@ -536,6 +555,18 @@
                           <div class="checkbox-row">
                             <input type="checkbox" name="reset_secret" value="1" id="reset-secret-<%= c.client_id %>" onchange="this.closest('form').querySelector('.reset-warning').style.display = this.checked ? 'block' : 'none'">
                             <label for="reset-secret-<%= c.client_id %>">重新生成 Client Secret（Client ID 保持不变）</label>
+                          </div>
+                          <div class="permission-box">
+                            <div class="permission-title">允许使用的上游 IdP</div>
+                            <div class="permission-options">
+                              <% providers.forEach(p => { %>
+                                <label class="permission-option">
+                                  <input type="checkbox" name="allowed_providers" value="<%= p.provider_id %>" <%= c.allowed_providers?.includes(p.provider_id) ? 'checked' : '' %>>
+                                  <span><%= p.display_name %> (<%= p.provider_id %>)</span>
+                                </label>
+                              <% }); %>
+                            </div>
+                            <div class="permission-help">不勾选表示允许全部已启用上游；勾选后仅允许选中的上游。</div>
                           </div>
                           <p class="reset-warning">旧密钥将立即失效，下游系统需同步更新为新密钥。</p>
                           <div class="form-actions"><button type="submit" class="btn btn-add" style="width:auto;">保存修改</button></div>
@@ -569,6 +600,18 @@
               </select>
             </div>
             <div class="form-group"><label for="add-client-scope">Scope</label><input type="text" id="add-client-scope" name="scope" value="openid email profile"></div>
+          </div>
+          <div class="permission-box">
+            <div class="permission-title">允许使用的上游 IdP</div>
+            <div class="permission-options">
+              <% providers.forEach(p => { %>
+                <label class="permission-option">
+                  <input type="checkbox" name="allowed_providers" value="<%= p.provider_id %>">
+                  <span><%= p.display_name %> (<%= p.provider_id %>)</span>
+                </label>
+              <% }); %>
+            </div>
+            <div class="permission-help">不勾选表示允许全部已启用上游；例如只勾选 Google 和 GitHub，即可限制该客户端只能使用这两个上游。</div>
           </div>
           <div class="form-actions"><button type="submit" class="btn btn-add" style="width:auto;">添加客户端</button></div>
         </form>

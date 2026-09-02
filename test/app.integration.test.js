@@ -65,6 +65,10 @@ test('application serves OIDC discovery and protects the admin session', async (
   assert.equal(login.headers.get('location'), '/admin');
   cookies = mergeCookies(login, cookies);
 
+  const authenticatedAdminPage = await fetch(`${baseUrl}/admin`, { headers: { cookie: cookies } });
+  assert.equal(authenticatedAdminPage.status, 200);
+  assert.match(await authenticatedAdminPage.text(), /允许使用的上游 IdP/);
+
   const clients = await fetch(`${baseUrl}/api/clients`, { headers: { cookie: cookies } });
   assert.equal(clients.status, 200);
   assert.deepEqual(await clients.json(), []);

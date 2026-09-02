@@ -25,6 +25,13 @@ function duplicateMessage(error, fallback) {
 export function createAdminRouter({ config, clients, mappings, providerStore, upstream, render, logger, loginLimiter }) {
   const router = new Router();
 
+  async function validateAllowedProviders(providerIds) {
+    if (providerIds.length === 0) return;
+    const known = new Set((await providerStore.getAllProviders()).map((row) => row.provider_id));
+    const unknown = providerIds.find((providerId) => !known.has(providerId));
+    if (unknown) throw new ValidationError(`上游 IdP ${unknown} 不存在`);
+  }
+
   async function loadViewData() {
     const [clientRows, mappingRows, enabledProviders, providers] = await Promise.all([
       clients.getAllClients(),
@@ -81,6 +88,7 @@ export function createAdminRouter({ config, clients, mappings, providerStore, up
     if (!requireAdmin(ctx)) return;
     try {
       const input = parseClientInput(ctx.request.body);
+      await validateAllowedProviders(input.allowedProviderIds);
       const clientId = crypto.randomBytes(12).toString('hex');
       const clientSecret = crypto.randomBytes(32).toString('base64url');
       await clients.addClient({ clientId, clientSecret, ...input });
@@ -102,6 +110,7 @@ export function createAdminRouter({ config, clients, mappings, providerStore, up
       const existing = await clients.getClientById(clientId);
       if (!existing) throw new NotFoundError('客户端不存在');
       const input = parseClientInput(ctx.request.body);
+      await validateAllowedProviders(input.allowedProviderIds);
       const newSecret = ctx.request.body.reset_secret ? crypto.randomBytes(32).toString('base64url') : null;
       await clients.updateClient(clientId, { ...input, clientSecret: newSecret, enabled: existing.enabled });
       logger.info('OIDC client updated', { clientId, secretRotated: Boolean(newSecret) });
@@ -176,7 +185,9 @@ export function createAdminRouter({ config, clients, mappings, providerStore, up
     try {
       const input = parseMappingInput(ctx.request.body);
       if (!(await clients.getClientById(input.clientId))) throw new ValidationError(`客户端 ${input.clientId} 不存在`);
-      if (!(await providerStore.getProviderConfig(input.provider))) throw new ValidationError(`上游 IdP ${input.provider} 不存在或未启用`);
+      if (!(await upstream.isProviderAllowedForClient(input.provider, input.clientId))) {
+        throw new ValidationError(`客户端无权使用上游 IdP ${input.provider}，或该 IdP 未启用`);
+      }
       const result = await mappings.addMapping(
         input.clientId,
         input.provider,

@@ -43,7 +43,7 @@ export function createInteractionRouter({ provider, upstream, mappings, render, 
     flow.state = crypto.randomBytes(24).toString('base64url');
     flow.nonce = crypto.randomBytes(24).toString('base64url');
     ctx.session.oidcFlow = flow;
-    const url = await upstream.getAuthUrl(providerId, flow.state, flow.nonce);
+    const url = await upstream.getAuthUrl(providerId, flow.state, flow.nonce, flow.clientId);
     logger.info('redirecting to upstream provider', { uid: flow.uid, providerId });
     ctx.redirect(url);
   }
@@ -53,16 +53,17 @@ export function createInteractionRouter({ provider, upstream, mappings, render, 
     const { prompt } = details;
 
     if (prompt.name === 'login') {
-      const providers = await upstream.getEnabledProviders();
+      const clientId = details.params.client_id;
+      const providers = await upstream.getEnabledProviders(clientId);
       if (providers.length === 0) {
         await render(ctx, 'error', {
-          message: '尚未配置任何上游身份提供商',
-          hint: '请前往 /admin 面板添加至少一个上游 IdP。',
+          message: '该客户端没有可用的上游身份提供商',
+          hint: '请联系管理员检查此客户端的上游权限和 IdP 启用状态。',
         });
         return;
       }
 
-      const flow = createFlow(ctx.params.uid, details.params.client_id);
+      const flow = createFlow(ctx.params.uid, clientId);
       ctx.session.oidcFlow = flow;
       if (providers.length === 1) {
         await redirectToProvider(ctx, providers[0].id, flow);
@@ -100,7 +101,7 @@ export function createInteractionRouter({ provider, upstream, mappings, render, 
   router.post('/interaction/:uid/select-idp', async (ctx) => {
     const flow = requireFlow(ctx);
     const providerId = String(ctx.request.body.provider || '');
-    if (!providerId || !(await upstream.isProviderEnabled(providerId))) {
+    if (!providerId || !(await upstream.isProviderAllowedForClient(providerId, flow.clientId))) {
       throw new ValidationError(`不支持的登录方式: ${providerId}`);
     }
     await redirectToProvider(ctx, providerId, flow);
@@ -111,12 +112,14 @@ export function createInteractionRouter({ provider, upstream, mappings, render, 
     const providerId = ctx.params.provider;
     if (!flow || !flow.uid) throw new ForbiddenError('会话已过期，请返回原网站重新发起 SSO 登录');
     if (flow.provider !== providerId) throw new ForbiddenError('上游身份提供商与当前登录会话不匹配');
-    if (!(await upstream.isProviderEnabled(providerId))) throw new ValidationError(`不支持的登录方式: ${providerId}`);
+    if (!(await upstream.isProviderAllowedForClient(providerId, flow.clientId))) {
+      throw new ValidationError(`不支持的登录方式: ${providerId}`);
+    }
 
     const profile = await upstream.handleCallback(providerId, ctx, {
       oauth_state: flow.state,
       oauth_nonce: flow.nonce,
-    });
+    }, flow.clientId);
     flow.profile = normalizeProfile(profile, providerId);
     ctx.session.oidcFlow = flow;
     logger.info('upstream authentication completed', { providerId, subject: flow.profile.id });
@@ -127,6 +130,9 @@ export function createInteractionRouter({ provider, upstream, mappings, render, 
     const flow = requireFlow(ctx);
     if (!flow.profile || !flow.clientId) throw new ForbiddenError('认证信息丢失，请重新登录');
     const profile = flow.profile;
+    if (!(await upstream.isProviderAllowedForClient(profile.provider, flow.clientId))) {
+      throw new ForbiddenError('该客户端已无权使用此上游身份提供商');
+    }
     const accounts = await mappings.getTargetAccounts(flow.clientId, profile.provider, profile.email);
 
     if (accounts.length <= 1) {
@@ -155,6 +161,9 @@ export function createInteractionRouter({ provider, upstream, mappings, render, 
     const flow = requireFlow(ctx);
     const selectedAccount = String(ctx.request.body.selected_account || '').trim().toLowerCase();
     if (!flow.profile || !selectedAccount) throw new ValidationError('无效的账号选择请求');
+    if (!(await upstream.isProviderAllowedForClient(flow.profile.provider, flow.clientId))) {
+      throw new ForbiddenError('该客户端已无权使用此上游身份提供商');
+    }
 
     const accounts = await mappings.getTargetAccounts(flow.clientId, flow.profile.provider, flow.profile.email);
     if (!accounts.some((account) => account.target_identity === selectedAccount)) {

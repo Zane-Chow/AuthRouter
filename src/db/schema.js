@@ -50,6 +50,15 @@ export const sqliteSchema = {
       created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
     )`,
 
+  client_upstream_permissions: `
+    CREATE TABLE IF NOT EXISTS client_upstream_permissions (
+      client_id    TEXT NOT NULL,
+      provider_id  TEXT NOT NULL,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (client_id, provider_id),
+      FOREIGN KEY (client_id) REFERENCES oidc_clients(client_id) ON DELETE CASCADE
+    )`,
+
   identity_mappings: `
     CREATE TABLE IF NOT EXISTS identity_mappings (
       id                INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -105,6 +114,15 @@ export const mysqlSchema = {
       icon           VARCHAR(32)   NOT NULL DEFAULT 'generic',
       enabled        TINYINT(1)    NOT NULL DEFAULT 1,
       created_at     DATETIME DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
+
+  client_upstream_permissions: `
+    CREATE TABLE IF NOT EXISTS client_upstream_permissions (
+      client_id    VARCHAR(100) NOT NULL,
+      provider_id  VARCHAR(50)  NOT NULL,
+      created_at   DATETIME DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (client_id, provider_id),
+      CONSTRAINT fk_permission_client FOREIGN KEY (client_id) REFERENCES oidc_clients(client_id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 
   identity_mappings: `

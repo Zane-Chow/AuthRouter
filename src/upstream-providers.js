@@ -12,10 +12,11 @@ import { AppError, UpstreamError, ValidationError } from './errors.js';
 /**
  * Get the list of enabled upstream providers with their metadata.
  * Used by the login selector page.
+ * @param {string} [clientId] - Restrict results to this client's whitelist.
  * @returns {Promise<Array<{id: string, name: string, icon: string}>>}
  */
-export async function getEnabledProviders() {
-  const rows = await getEnabledProviderRows();
+export async function getEnabledProviders(clientId) {
+  const rows = await getEnabledProviderRows(clientId);
   return rows.map(row => ({
     id: row.provider_id,
     name: row.display_name,
@@ -33,15 +34,22 @@ export async function isProviderEnabled(providerName) {
   return !!row;
 }
 
+/** Check that a provider is both globally enabled and allowed for a client. */
+export async function isProviderAllowedForClient(providerName, clientId) {
+  const row = await getProviderConfig(providerName, clientId);
+  return !!row;
+}
+
 /**
  * Get the OAuth authorization URL for the specified provider.
  * @param {string} providerName - upstream_providers.provider_id
  * @param {string} state - CSRF state parameter
  * @param {string} nonce - Nonce (used by OIDC, ignored by plain OAuth2)
+ * @param {string} [clientId] - Downstream client whose permission is checked.
  * @returns {Promise<string>} The authorization URL
  */
-export async function getAuthUrl(providerName, state, nonce) {
-  const row = await getProviderConfig(providerName);
+export async function getAuthUrl(providerName, state, nonce, clientId) {
+  const row = await getProviderConfig(providerName, clientId);
   if (!row) {
     throw new Error(`Unknown or disabled upstream provider: ${providerName}`);
   }
@@ -68,10 +76,11 @@ export async function getAuthUrl(providerName, state, nonce) {
  * @param {string} providerName - upstream_providers.provider_id
  * @param {object} ctx - Koa context (for reading query params)
  * @param {object} sessionData - Session data containing state/nonce
+ * @param {string} [clientId] - Downstream client whose permission is checked.
  * @returns {Promise<{provider: string, id: string, email: string, name: string, avatar: string}>}
  */
-export async function handleCallback(providerName, ctx, sessionData) {
-  const row = await getProviderConfig(providerName);
+export async function handleCallback(providerName, ctx, sessionData, clientId) {
+  const row = await getProviderConfig(providerName, clientId);
   if (!row) {
     throw new Error(`Unknown or disabled upstream provider: ${providerName}`);
   }

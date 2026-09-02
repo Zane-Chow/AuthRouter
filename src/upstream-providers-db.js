@@ -20,8 +20,23 @@ export async function getAllProviders() {
 /**
  * Enabled providers, raw rows — for the login selector / dispatch layer.
  */
-export async function getEnabledProviderRows() {
+export async function getEnabledProviderRows(clientId) {
   const db = await getDb();
+  if (clientId) {
+    return db.all(
+      `SELECT p.* FROM upstream_providers p
+       WHERE p.enabled = 1
+         AND (
+           NOT EXISTS (SELECT 1 FROM client_upstream_permissions cp WHERE cp.client_id = ?)
+           OR EXISTS (
+             SELECT 1 FROM client_upstream_permissions cp
+             WHERE cp.client_id = ? AND cp.provider_id = p.provider_id
+           )
+         )
+       ORDER BY p.display_name`,
+      [clientId, clientId],
+    );
+  }
   return db.all('SELECT * FROM upstream_providers WHERE enabled = 1 ORDER BY display_name');
 }
 
@@ -37,9 +52,22 @@ export async function getProviderById(id) {
  * Look up a provider by its slug (used by the login/callback flow), with the
  * secret decrypted — ready to use for outbound OAuth2/OIDC calls.
  */
-export async function getProviderConfig(providerId) {
+export async function getProviderConfig(providerId, clientId) {
   const db = await getDb();
-  const row = await db.get('SELECT * FROM upstream_providers WHERE provider_id = ? AND enabled = 1', [providerId]);
+  const row = clientId
+    ? await db.get(
+      `SELECT p.* FROM upstream_providers p
+       WHERE p.provider_id = ? AND p.enabled = 1
+         AND (
+           NOT EXISTS (SELECT 1 FROM client_upstream_permissions cp WHERE cp.client_id = ?)
+           OR EXISTS (
+             SELECT 1 FROM client_upstream_permissions cp
+             WHERE cp.client_id = ? AND cp.provider_id = p.provider_id
+           )
+         )`,
+      [providerId, clientId, clientId],
+    )
+    : await db.get('SELECT * FROM upstream_providers WHERE provider_id = ? AND enabled = 1', [providerId]);
   if (!row) return null;
   return { ...row, client_secret: decryptSecret(row.client_secret) };
 }
@@ -79,8 +107,10 @@ export async function addProvider({
 }
 
 /**
- * Remove a provider by numeric id. Existing identity_mappings that reference
- * its provider_id string are left untouched (no FK — same as before).
+ * Remove a provider by numeric id. Existing identity_mappings and client
+ * permission rows that reference its provider_id string are left untouched.
+ * Keeping permission rows prevents a restricted client from accidentally
+ * becoming unrestricted when its last allowed provider is removed.
  */
 export async function removeProvider(id) {
   const db = await getDb();

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseClientInput, parseMappingInput, parseProviderInput, parseRedirectUris } from '../src/validation.js';
+import { parseClientInput, parseMappingInput, parseProviderIds, parseProviderInput, parseRedirectUris } from '../src/validation.js';
 
 test('redirect URI parsing normalizes, deduplicates, and accepts custom schemes', () => {
   assert.deepEqual(parseRedirectUris('https://app.example/callback, https://app.example/callback\ncom.example.app:/oauth'), [
@@ -21,7 +21,15 @@ test('client input keeps supported downstream authentication methods', () => {
     redirectUris: ['https://wiki.example/oidc/callback'],
     tokenAuthMethod: 'client_secret_basic',
     scope: 'openid email profile',
+    allowedProviderIds: [],
   });
+});
+
+test('client upstream permissions accept form scalars and arrays', () => {
+  assert.deepEqual(parseProviderIds(undefined), []);
+  assert.deepEqual(parseProviderIds('google'), ['google']);
+  assert.deepEqual(parseProviderIds(['google', 'github', 'google']), ['google', 'github']);
+  assert.throws(() => parseProviderIds('../invalid'), /格式无效/);
 });
 
 test('provider input enforces URL-safe IDs and type-specific endpoints', () => {

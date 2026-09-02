@@ -188,10 +188,12 @@ SSO_BASE_URL=https://sso.example.com
 **客户端 A（Mailcow）**
 - 回调地址：`https://mail.example.com/oauth2/callback`（Mailcow 自己的回调路径，填它要求的格式）
 - Client ID / Secret：由中间件自动生成，创建后复制填入 Mailcow
+- 允许使用的上游 IdP：不勾选（允许全部已启用上游）
 
 **客户端 B（Wiki）**
 - 回调地址：`https://wiki.example.com/auth/oidc/callback`
 - Client ID / Secret：另一套，自动生成
+- 允许使用的上游 IdP：只勾选 Google 和 GitHub
 
 在 Mailcow 和 Wiki 两边的 OIDC 设置里，**Authorization/Token/UserInfo/Issuer 这几行填的内容
 完全相同**（都是 `sso.example.com` 那几个固定端点），唯一不同的是各自的 Client ID/Secret
@@ -207,6 +209,8 @@ SSO_BASE_URL=https://sso.example.com
 | Client Secret | 对应的 secret | 对应的 secret |
 | Redirect URI | `https://mail.example.com/oauth2/callback` | `https://wiki.example.com/auth/oidc/callback` |
 | Scopes | `openid email profile` | `openid email profile` |
+
+“允许使用的上游 IdP”是客户端级白名单。不勾选任何上游代表不限制；只要勾选了至少一个，上游登录选择页就只显示选中的、并且当前全局启用的 IdP。即使用户直接提交未授权的 `provider_id` 或复用旧回调会话，服务端也会拒绝该请求。
 
 ---
 
