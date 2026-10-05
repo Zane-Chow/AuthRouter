@@ -12,6 +12,13 @@
  */
 
 export const sqliteSchema = {
+  api_settings: `
+    CREATE TABLE IF NOT EXISTS api_settings (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      enabled INTEGER NOT NULL DEFAULT 0,
+      token_hash TEXT,
+      token_created_at TEXT
+    )`,
   oidc_clients: `
     CREATE TABLE IF NOT EXISTS oidc_clients (
       id                          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,6 +85,13 @@ export const sqliteIndexes = [
 ];
 
 export const mysqlSchema = {
+  api_settings: `
+    CREATE TABLE IF NOT EXISTS api_settings (
+      id INT PRIMARY KEY,
+      enabled TINYINT(1) NOT NULL DEFAULT 0,
+      token_hash VARCHAR(64),
+      token_created_at VARCHAR(32)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
   oidc_clients: `
     CREATE TABLE IF NOT EXISTS oidc_clients (
       id                          INT AUTO_INCREMENT PRIMARY KEY,

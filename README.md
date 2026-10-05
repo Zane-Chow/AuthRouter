@@ -184,6 +184,8 @@ curl https://sso.example.com/.well-known/openid-configuration
 
 完整的上游字段、下游字段和身份映射示例见[上游 / 下游配置指南](docs/upstream-downstream-config.md)。
 
+通过 `/api/*` JSON 接口接入上游、配置下游客户端和身份映射，见 [管理 API 文档](docs/api.md)。在 `/admin` 的「管理 API」区域生成 Token 并开启 API 后，使用 `Authorization: Bearer <Token>` 调用，无需 Cookie 或 CSRF。API 默认关闭，开关与 Token 摘要持久化到数据库。
+
 ## 升级与回滚
 
 ### 升级到新版本
@@ -355,7 +357,7 @@ npm test
 | `/jwks` | JSON Web Key Set |
 | `/admin` | 管理面板 |
 
-自动化集成应优先依赖标准 OIDC 端点。管理接口属于内部实现，不承诺跨版本稳定。
+登录接入使用标准 OIDC 端点；配置自动化使用 [管理 API](docs/api.md)。管理 API 统一位于 `/api/*`，默认关闭，需在后台生成 Token 并开启后调用。生成新 Token 会立即使旧 Token 失效。
 
 ## License
 

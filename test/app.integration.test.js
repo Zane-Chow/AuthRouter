@@ -70,6 +70,6 @@ test('application serves OIDC discovery and protects the admin session', async (
   assert.match(await authenticatedAdminPage.text(), /允许使用的上游 IdP/);
 
   const clients = await fetch(`${baseUrl}/api/clients`, { headers: { cookie: cookies } });
-  assert.equal(clients.status, 200);
-  assert.deepEqual(await clients.json(), []);
+  assert.equal(clients.status, 403);
+  assert.equal((await clients.json()).error, 'api_disabled');
 });

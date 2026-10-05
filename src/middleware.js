@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
 import { render } from './render.js';
+import { isApiPath } from './api-auth.js';
 
 function wantsJson(ctx) {
-  return ctx.path.startsWith('/api/') || ctx.accepts('json', 'html') === 'json';
+  return isApiPath(ctx.path) || ctx.accepts('json', 'html') === 'json';
 }
 
 export function requestContext(logger) {

@@ -74,3 +74,12 @@ export async function getMappingById(id) {
   const db = await getDb();
   return db.get('SELECT * FROM identity_mappings WHERE id = ?', [id]);
 }
+
+export async function updateMapping(id, input) {
+  const db = await getDb();
+  return db.run(
+    `UPDATE identity_mappings SET client_id = ?, provider = ?, provider_identity = ?,
+      target_identity = ?, display_name = ? WHERE id = ?`,
+    [input.clientId, input.provider, input.providerIdentity, input.targetIdentity, input.displayName, id],
+  );
+}

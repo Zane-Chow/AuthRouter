@@ -8,6 +8,8 @@ import * as clients from './clients.js';
 import * as mappings from './mapping.js';
 import * as providerStore from './upstream-providers-db.js';
 import * as upstreamProviders from './upstream-providers.js';
+import * as apiSettings from './api-settings.js';
+import { apiAuthentication, isApiPath } from './api-auth.js';
 import { render } from './render.js';
 import { logger } from './logger.js';
 import { MemorySessionStore } from './session-store.js';
@@ -15,8 +17,9 @@ import { LoginRateLimiter, csrfProtection, exposeCsrfToken, securityHeaders } fr
 import { errorHandler, notFound, requestContext } from './middleware.js';
 import { createInteractionRouter } from './routes/interaction-routes.js';
 import { createAdminRouter } from './routes/admin-routes.js';
-import { createApiRouter } from './routes/api-routes.js';
+import { createApiRouter, createHealthRouter } from './routes/api-routes.js';
 import { closeDb } from './db/index.js';
+import { ValidationError } from './errors.js';
 
 function isProviderPath(path) {
   return path === '/.well-known/openid-configuration'
@@ -59,6 +62,7 @@ export async function createApplication(overrides = {}) {
     mappings,
     providerStore,
     upstream: upstreamProviders,
+    apiSettings,
     render,
     logger,
     ...overrides,
@@ -76,6 +80,32 @@ export async function createApplication(overrides = {}) {
   app.use(requestContext(dependencies.logger));
   app.use(errorHandler(dependencies));
   app.use(dispatchToProvider(provider));
+  // Token APIs run before session and CSRF middleware; browser cookies cannot authenticate them.
+  const apiRouter = createApiRouter(dependencies);
+  const apiRoutes = apiRouter.routes();
+  const apiMethods = apiRouter.allowedMethods();
+  const apiNotFound = notFound();
+  const apiBodyParser = bodyParser({
+    enableTypes: ['json'], jsonLimit: '256kb',
+    onerror(error) {
+      if (error.status === 413) {
+        throw new ValidationError('请求体不能超过 256 KiB', { status: 413, code: 'payload_too_large' });
+      }
+      throw new ValidationError('JSON 请求体无效');
+    },
+  });
+  app.use(apiAuthentication(dependencies.apiSettings));
+  app.use(async (ctx, next) => {
+    if (!isApiPath(ctx.path)) return next();
+    await apiBodyParser(ctx, async () => {
+      await apiRoutes(ctx, async () => {
+        await apiMethods(ctx, () => apiNotFound(ctx));
+      });
+    });
+    if ([405, 501].includes(ctx.status)) {
+      ctx.body = { error: 'method_not_allowed', message: '不支持该 HTTP 方法', requestId: ctx.state.requestId };
+    }
+  });
   app.use(session({
     key: 'sso:sess',
     maxAge: dependencies.config.session.maxAgeMs,
@@ -92,8 +122,8 @@ export async function createApplication(overrides = {}) {
 
   const interactionRouter = createInteractionRouter({ ...dependencies, provider });
   const adminRouter = createAdminRouter({ ...dependencies, loginLimiter });
-  const apiRouter = createApiRouter(dependencies);
-  for (const router of [interactionRouter, adminRouter, apiRouter]) {
+  const healthRouter = createHealthRouter(dependencies);
+  for (const router of [interactionRouter, adminRouter, healthRouter]) {
     app.use(router.routes());
     app.use(router.allowedMethods());
   }

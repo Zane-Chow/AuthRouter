@@ -493,6 +493,35 @@
         </div>
       <% } %>
 
+      <div class="section-header">
+        <h2>管理 API</h2>
+        <span class="badge"><%= apiConfig.enabled ? '已开启' : '已关闭' %></span>
+      </div>
+      <div class="add-section">
+        <p class="hint-text">开启后，可通过 API Token 管理上游身份提供商、下游客户端和身份映射。Token 拥有全部管理 API 权限，请妥善保管。</p>
+        <p class="hint-text">Token：<%= apiConfig.hasToken ? '已生成' : '未生成' %><% if (apiConfig.tokenCreatedAt) { %> · 最近生成于 <%= apiConfig.tokenCreatedAt %><% } %></p>
+        <% if (typeof apiToken !== 'undefined' && apiToken) { %>
+          <div class="form-group">
+            <label for="api-token">API Token</label>
+            <input type="text" class="mono" id="api-token" value="<%= apiToken %>" readonly onclick="this.select()" autocomplete="off" spellcheck="false">
+          </div>
+          <p class="hint-text" style="color: var(--error-text);">明文仅在本次生成后显示。离开此页后无法再次查看，请立即复制保存。</p>
+        <% } %>
+        <div class="actions-cell" style="flex-wrap:wrap">
+          <form method="POST" action="/admin/api/settings" style="margin:0">
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <input type="hidden" name="enabled" value="<%= apiConfig.enabled ? '0' : '1' %>">
+            <button type="submit" class="btn <%= apiConfig.enabled ? 'btn-danger' : 'btn-add' %>" <%= !apiConfig.enabled && !apiConfig.hasToken ? 'disabled' : '' %>><%= apiConfig.enabled ? '关闭 API' : '开启 API' %></button>
+          </form>
+          <form method="POST" action="/admin/api/token" style="margin:0" <% if (apiConfig.hasToken) { %>onsubmit="return confirm('重新生成后，旧 Token 会立即失效。确定继续？')"<% } %>>
+            <input type="hidden" name="_csrf" value="<%= csrfToken %>">
+            <button type="submit" class="btn btn-add"><%= apiConfig.hasToken ? '重新生成 Token' : '生成 API Token' %></button>
+          </form>
+        </div>
+        <% if (!apiConfig.hasToken) { %><p class="permission-help">先生成并保存 Token，再开启 API。</p><% } %>
+        <p class="permission-help">请求路径：/api/* · 鉴权：Authorization: Bearer &lt;Token&gt; · 关闭 API 后所有 Token 请求均被拒绝。</p>
+      </div>
+
       <!-- Clients Section -->
       <div class="section-header">
         <h2>OIDC 客户端</h2>

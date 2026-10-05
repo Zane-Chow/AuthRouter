@@ -121,11 +121,12 @@ export async function addClient({
   tokenAuthMethod = 'client_secret_post',
   scope = 'openid email profile',
   allowedProviderIds = [],
+  enabled = 1,
 }) {
   const db = await getDb();
   const result = await db.run(
-    `INSERT INTO oidc_clients (client_id, client_secret, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, scope)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO oidc_clients (client_id, client_secret, client_name, redirect_uris, grant_types, response_types, token_endpoint_auth_method, scope, enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       clientId,
       encryptSecret(clientSecret),
@@ -135,6 +136,7 @@ export async function addClient({
       '["code"]',
       tokenAuthMethod,
       scope,
+      enabled ? 1 : 0,
     ]
   );
   await setAllowedProviderIds(clientId, allowedProviderIds);
@@ -202,4 +204,9 @@ export async function updateClient(clientId, {
 export async function removeClient(clientId) {
   const db = await getDb();
   return db.run('DELETE FROM oidc_clients WHERE client_id = ?', [clientId]);
+}
+
+export async function rotateClientSecret(clientId, clientSecret) {
+  const db = await getDb();
+  return db.run('UPDATE oidc_clients SET client_secret = ? WHERE client_id = ?', [encryptSecret(clientSecret), clientId]);
 }

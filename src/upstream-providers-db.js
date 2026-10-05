@@ -92,16 +92,18 @@ export async function addProvider({
   fieldName = 'name',
   fieldAvatar = 'picture',
   icon = 'generic',
+  enabled = 1,
 }) {
   const db = await getDb();
   return db.run(
     `INSERT INTO upstream_providers
        (provider_id, display_name, type, issuer, authorize_url, token_url, userinfo_url, email_url,
-        client_id, client_secret, scope, field_id, field_email, field_name, field_avatar, icon)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        client_id, client_secret, scope, field_id, field_email, field_name, field_avatar, icon, enabled)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       providerId, displayName, type, issuer, authorizeUrl, tokenUrl, userinfoUrl, emailUrl,
       clientId, encryptSecret(clientSecret), scope, fieldId, fieldEmail, fieldName, fieldAvatar, icon,
+      enabled ? 1 : 0,
     ]
   );
 }
@@ -123,4 +125,19 @@ export async function removeProvider(id) {
 export async function setProviderEnabled(id, enabled) {
   const db = await getDb();
   return db.run('UPDATE upstream_providers SET enabled = ? WHERE id = ?', [enabled ? 1 : 0, id]);
+}
+
+/** Update configuration without changing the provider_id referenced by permissions and mappings. */
+export async function updateProvider(id, input) {
+  const db = await getDb();
+  return db.run(
+    `UPDATE upstream_providers SET display_name = ?, type = ?, issuer = ?, authorize_url = ?,
+      token_url = ?, userinfo_url = ?, email_url = ?, client_id = ?, client_secret = COALESCE(?, client_secret),
+      scope = ?, field_id = ?, field_email = ?, field_name = ?, field_avatar = ?, icon = ?, enabled = ?
+      WHERE id = ?`,
+    [input.displayName, input.type, input.issuer, input.authorizeUrl, input.tokenUrl,
+      input.userinfoUrl, input.emailUrl, input.clientId, input.clientSecret ? encryptSecret(input.clientSecret) : null,
+      input.scope, input.fieldId, input.fieldEmail, input.fieldName, input.fieldAvatar, input.icon,
+      input.enabled ? 1 : 0, id],
+  );
 }

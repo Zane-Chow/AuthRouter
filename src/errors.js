@@ -32,6 +32,12 @@ export class NotFoundError extends AppError {
   }
 }
 
+export class ConflictError extends AppError {
+  constructor(message = '记录已存在', options = {}) {
+    super(message, { status: 409, code: 'conflict', expose: true, ...options });
+  }
+}
+
 export class UpstreamError extends AppError {
   constructor(message, options = {}) {
     super(message, { status: 502, code: 'upstream_error', expose: true, ...options });

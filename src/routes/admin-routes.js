@@ -22,8 +22,12 @@ function duplicateMessage(error, fallback) {
     : error.message;
 }
 
-export function createAdminRouter({ config, clients, mappings, providerStore, upstream, render, logger, loginLimiter }) {
+export function createAdminRouter({ config, clients, mappings, providerStore, upstream, apiSettings, render, logger, loginLimiter }) {
   const router = new Router();
+  router.use(async (ctx, next) => {
+    if (ctx.path === '/admin' || ctx.path.startsWith('/admin/')) ctx.set('Cache-Control', 'no-store');
+    await next();
+  });
 
   async function validateAllowedProviders(providerIds) {
     if (providerIds.length === 0) return;
@@ -33,13 +37,14 @@ export function createAdminRouter({ config, clients, mappings, providerStore, up
   }
 
   async function loadViewData() {
-    const [clientRows, mappingRows, enabledProviders, providers] = await Promise.all([
+    const [clientRows, mappingRows, enabledProviders, providers, apiConfig] = await Promise.all([
       clients.getAllClients(),
       mappings.getAllMappings(),
       upstream.getEnabledProviders(),
       providerStore.getAllProviders(),
+      apiSettings.getApiSettings(),
     ]);
-    return { clients: clientRows, mappings: mappingRows, enabledProviders, providers };
+    return { clients: clientRows, mappings: mappingRows, enabledProviders, providers, apiConfig };
   }
 
   router.get('/admin', async (ctx) => {
@@ -82,6 +87,38 @@ export function createAdminRouter({ config, clients, mappings, providerStore, up
   router.post('/admin/logout', async (ctx) => {
     ctx.session = null;
     ctx.redirect('/admin');
+  });
+
+  router.post('/admin/api/settings', async (ctx) => {
+    if (!requireAdmin(ctx)) return;
+    try {
+      const value = ctx.request.body.enabled;
+      if (!['0', '1'].includes(value)) throw new ValidationError('API 开关值无效');
+      const enabled = value === '1';
+      const settings = await apiSettings.getApiSettings();
+      if (enabled && !settings.hasToken) throw new ValidationError('请先生成 API Token');
+      await apiSettings.setApiEnabled(enabled);
+      logger.info('management API settings updated', { enabled });
+      redirectWith(ctx, 'message', enabled ? '管理 API 已开启' : '管理 API 已关闭');
+    } catch (error) {
+      redirectWith(ctx, 'error', error.message);
+    }
+  });
+
+  router.post('/admin/api/token', async (ctx) => {
+    if (!requireAdmin(ctx)) return;
+    try {
+      const apiToken = await apiSettings.generateApiToken();
+      logger.info('management API token rotated');
+      await render(ctx, 'admin', {
+        loggedIn: true,
+        ...await loadViewData(),
+        apiToken,
+        message: 'API Token 已生成，请立即保存。此前的 Token 已失效。',
+      });
+    } catch (error) {
+      redirectWith(ctx, 'error', error.message);
+    }
   });
 
   router.post('/admin/clients', async (ctx) => {
